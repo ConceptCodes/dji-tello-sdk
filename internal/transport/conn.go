@@ -2,102 +2,158 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net"
+	"sync"
 	"time"
 )
 
-const remoteAddr = "192.168.10.1"
-const port = 8889
+const (
+	cmdPort   = 8889  // drone <-> laptop
+	statePort = 8890  // drone -> laptop
+	videoPort = 11111 // drone -> laptop
 
-type UDPConnection struct {
-	conn       net.PacketConn
-	timeout    time.Duration
-	ctx        context.Context
-	remoteAddr *net.UDPAddr
+	maxPacket = 2048
+)
+
+type Conn struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+
+	// underlying sockets ---------------------------------------------------
+	cmd   *CommandConn       // active client (Send)
+	state *UDPListenerConfig // passive listener
+	video *UDPListenerConfig // passive listener
+
+	// user‑facing channels --------------------------------------------------
+	stateCh chan []byte // raw state packets (parse elsewhere)
+	videoCh chan []byte // raw H.264 payloads
+	errCh   chan error  // async errors (e.g. socket closed)
+	cmdQ    chan []byte // internal queue, 1‑Hz drain
 }
 
-type Connection interface {
-	Send(data []byte) error
-	Receive(buf []byte) (int, net.Addr, error)
-	Close() error
-	LocalAddr() net.Addr
+func NewConn(timeout time.Duration, ctx context.Context) (*Conn, error) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	cmd, err := NewCommandConn(cmdPort, timeout, ctx)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("command conn: %w", err)
+	}
+	state, err := NewUDPListener(statePort, timeout, ctx)
+	if err != nil {
+		cancel()
+		cmd.Close()
+		return nil, fmt.Errorf("state listener: %w", err)
+	}
+	video, err := NewUDPListener(videoPort, timeout, ctx)
+	if err != nil {
+		cancel()
+		cmd.Close()
+		state.Close()
+		return nil, fmt.Errorf("video listener: %w", err)
+	}
+
+	c := &Conn{
+		ctx:     ctx,
+		cancel:  cancel,
+		cmd:     cmd,
+		state:   state,
+		video:   video,
+		stateCh: make(chan []byte, 32),
+		videoCh: make(chan []byte, 32),
+		errCh:   make(chan error, 4),
+		cmdQ:    make(chan []byte, 32),
+	}
+	c.start()
+	return c, nil
 }
 
-func New(timeout time.Duration, ctx context.Context) (*UDPConnection, error) {
-	addr := &net.UDPAddr{
-		IP:   net.ParseIP(remoteAddr),
-		Port: port,
+func (c *Conn) SendCommand(cmd []byte) error {
+	select {
+	case c.cmdQ <- cmd:
+		return nil
+	case <-c.ctx.Done():
+		return errors.New("conn closed")
 	}
-	if addr == nil {
-		return nil, fmt.Errorf("failed to parse remote address: %s", remoteAddr)
-	}
-	remoteAddr, err := net.ResolveUDPAddr("udp", addr.String())
-	if err != nil {
-		return nil, fmt.Errorf("failed to resolve remote address: %w", err)
-	}
-
-	conn, err := net.ListenPacket("udp", ":0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to create UDP connection: %w", err)
-	}
-
-	return &UDPConnection{
-		conn:       conn,
-		timeout:    timeout,
-		ctx:        ctx,
-		remoteAddr: remoteAddr,
-	}, nil
 }
 
-func (c *UDPConnection) Send(data []byte) error {
-	_, err := c.conn.WriteTo(data, c.remoteAddr)
-	if err != nil {
-		return fmt.Errorf("failed to send data: %w", err)
-	}
+func (c *Conn) State() <-chan []byte { return c.stateCh }
+func (c *Conn) Video() <-chan []byte { return c.videoCh }
+func (c *Conn) Errors() <-chan error { return c.errCh }
+
+func (c *Conn) Close() error {
+	c.cancel()
+	c.wg.Wait()
+	_ = c.cmd.Close()
+	_ = c.state.Close()
+	_ = c.video.Close()
+	close(c.stateCh)
+	close(c.videoCh)
+	close(c.errCh)
 	return nil
 }
 
-func (c *UDPConnection) Receive(buf []byte) (int, net.Addr, error) {
-	var deadline time.Time
-	connDeadline := time.Now().Add(c.timeout)
-	ctxDeadline, ok := c.ctx.Deadline()
-
-	if ok && ctxDeadline.Before(connDeadline) {
-		deadline = ctxDeadline
-	} else {
-		deadline = connDeadline
-	}
-
-	err := c.conn.SetReadDeadline(deadline)
-	if err != nil {
-		return 0, nil, fmt.Errorf("failed to set read deadline: %w", err)
-	}
-
-	n, addr, err := c.conn.ReadFrom(buf)
-	if err != nil {
-		select {
-		case <-c.ctx.Done():
-			c.conn.SetReadDeadline(time.Time{})
-			return 0, nil, fmt.Errorf("receive cancelled by context: %w", c.ctx.Err())
-		default:
-			return 0, nil, fmt.Errorf("failed to receive data: %w", err)
+func (c *Conn) start() {
+	// 1‑Hz rate‑limited command sender
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		tick := time.NewTicker(time.Second)
+		defer tick.Stop()
+		for {
+			select {
+			case <-c.ctx.Done():
+				return
+			case data := <-c.cmdQ:
+				<-tick.C // rate‑limit
+				if err := c.cmd.Send(data); err != nil {
+					c.errCh <- fmt.Errorf("cmd send: %w", err)
+				}
+			}
 		}
-	}
+	}()
 
-	c.conn.SetReadDeadline(time.Time{})
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		buf := make([]byte, maxPacket)
+		for {
+			n, _, err := c.state.Receive(buf)
+			if err != nil {
+				select {
+				case <-c.ctx.Done():
+					return
+				default:
+					c.errCh <- fmt.Errorf("state recv: %w", err)
+					continue
+				}
+			}
+			pkt := make([]byte, n)
+			copy(pkt, buf[:n])
+			c.stateCh <- pkt
+		}
+	}()
 
-	return n, addr, nil
-}
-
-func (c *UDPConnection) Close() error {
-	err := c.conn.Close()
-	if err != nil {
-		return fmt.Errorf("failed to close connection: %w", err)
-	}
-	return nil
-}
-
-func (c *UDPConnection) LocalAddr() net.Addr {
-	return c.conn.LocalAddr()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		buf := make([]byte, maxPacket)
+		for {
+			n, _, err := c.video.Receive(buf)
+			if err != nil {
+				select {
+				case <-c.ctx.Done():
+					return
+				default:
+					c.errCh <- fmt.Errorf("video recv: %w", err)
+					continue
+				}
+			}
+			pkt := make([]byte, n)
+			copy(pkt, buf[:n])
+			c.videoCh <- pkt
+		}
+	}()
 }
