@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  # Run on every push to main and on all PRs
+  push:
+    branches: [main]
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    # Test against the current and previous Go releases
+    strategy:
+      matrix:
+        go-version: ['1.23', '1.22']
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+
+      - name: Install Makefile deps (linters & tools)
+        run: |
+          make install-lint
+
+      - name: Run CI suite
+        run: |
+          make ci        # = lint vet staticcheck race cover
+
+      - name: Upload coverage report
+        if: matrix.go-version == '1.22'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.sha }}.out
+          path: coverage.out
+          retention-days: 5
+
+  release:
+    # Only fire on tag pushes (skipped for branch builds / PRs)
+    if: startsWith( github.ref, 'refs/tags/v' )
+    needs: build-test
+    name: Build & Publish Binaries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Build CLI
+        run: |
+          make build
+          echo "Version: $(./bin/telloctl --version)"
+
+      - name: Create GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+      - name: Upload binary asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            bin/telloctl
