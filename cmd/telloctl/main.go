@@ -15,7 +15,7 @@ const (
 var drone tello.TelloCommander
 
 func main() {
-	sdk := tello.NewTello(DefaultTelloHost)
+	sdk := tello.NewTelloSDK(DefaultTelloHost)
 	var err error
 	drone, err = sdk.Initialize()
 	if err != nil {

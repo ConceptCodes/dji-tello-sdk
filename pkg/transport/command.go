@@ -24,12 +24,12 @@ func NewCommandConnection(addr string, port int) (*CommandConnection, error) {
 func (c *CommandConnection) SendCommand(command string) ([]byte, error) {
 	data := []byte(command)
 	if err := c.client.Send(data); err != nil {
-		return nil, fmt.Errorf("failed to send command '%s': %w", command, err)
+		return nil, err
 	}
 
 	response, err := c.client.Receive(1024, 2*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("failed to receive response for command '%s': %w", command, err)
+		return nil, err
 	}
 
 	return response, nil

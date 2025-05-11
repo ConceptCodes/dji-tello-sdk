@@ -85,7 +85,7 @@ func (t *telloCommander) processCommandQueue() {
 		}
 		err := t.sendCommand(command)
 		if err != nil {
-			utils.Logger.Errorf("Error sending command '%s': %v", command, err)
+			utils.Logger.Errorf("Failed to send command '%s': %v", command, err)
 			// Decide on error handling: retry, log, or stop processing
 		}
 	}
@@ -96,19 +96,16 @@ func (t *telloCommander) sendCommand(cmd string) error {
 
 	response, err := t.commandClient.SendCommand(cmd)
 	if err != nil {
-		utils.Logger.Errorf("Error receiving response for '%s': %v", cmd, err)
-		return fmt.Errorf("failed to send command '%s': %w", cmd, err)
+		return err
 	}
 
 	respStr := string(response)
 	if respStr != "ok" && respStr != "OK" {
 		if respStr == "error" || respStr == "ERROR" {
-			return fmt.Errorf("tello returned error for command '%s'", cmd)
+			return err
 		}
 		return fmt.Errorf("unexpected response to command '%s': %s", cmd, respStr)
 	}
-
-	
 
 	utils.Logger.Infof("Command '%s' sent successfully.", cmd)
 	return nil
@@ -409,5 +406,3 @@ func (t *telloCommander) GetTof() (int, error) {
 	// TODO: Implement the logic to get the time of flight distance from the drone
 	return 0, nil
 }
-
-// var _ TelloCommander = (*telloCommander)(nil)

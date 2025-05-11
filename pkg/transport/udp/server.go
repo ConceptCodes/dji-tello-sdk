@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net"
 	"strings"
+
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
 type UDPServer struct {
@@ -40,10 +42,10 @@ func NewUDPServer(listenAddr string, opts ...UDPServerOption) (*UDPServer, error
 	srv := &UDPServer{
 		Addr: listenAddr,
 		OnData: func(data []byte, rAddr *net.UDPAddr) {
-			fmt.Printf("Default OnData: Received %d bytes from %s on %s: %s\n", len(data), rAddr.String(), listenAddr, string(data))
+			utils.Logger.Infof("Default OnData: Received %d bytes from %s on %s: %s", len(data), rAddr.String(), listenAddr, string(data))
 		},
 		OnError: func(err error) {
-			fmt.Printf("Default OnError: UDP Server Error on %s: %v\n", listenAddr, err)
+			utils.Logger.Errorf("Default OnError: UDP Server Error on %s: %v", listenAddr, err)
 		},
 	}
 
@@ -69,7 +71,7 @@ func (s *UDPServer) Start() error {
 	}
 	s.Conn = conn
 
-	fmt.Printf("UDP server listening on %s\n", s.Addr)
+	utils.Logger.Infof("UDP server listening on %s", s.Addr)
 
 	buffer := make([]byte, 2048)
 	for {
@@ -106,8 +108,8 @@ func (s *UDPServer) Stop() {
 				s.OnError(fmt.Errorf("error stopping UDP server on %s: %w", s.Addr, err))
 			}
 		}
-		fmt.Printf("UDP server on %s stopped.\n", s.Addr)
+		utils.Logger.Infof("UDP server on %s stopped.", s.Addr)
 	} else {
-		fmt.Printf("UDP server on %s was already stopped or not started.\n", s.Addr)
+		utils.Logger.Warnf("UDP server on %s was already stopped or not started.", s.Addr)
 	}
 }

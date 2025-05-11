@@ -36,7 +36,7 @@ func (c *UDPClient) Send(data []byte) error {
 	}
 	_, err := c.conn.Write(data)
 	if err != nil {
-		return fmt.Errorf("failed to send UDP data: %w", err)
+		return err
 	}
 	return nil
 }

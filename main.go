@@ -1,28 +1,27 @@
 package main
 
 import (
-	"context"
+	"os"
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
-	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
+)
+
+const (
+	DefaultTelloHost = "192.168.10.1"
 )
 
 func main() {
-	// Create a new Tello instance
-	ctx := context.Background()
+	sdk := tello.NewTelloSDK(DefaultTelloHost)
 
-	commandConn, err := transport.NewCommandConn(ctx, 8889, 5*time.Second)
+	drone, err := sdk.Initialize()
 	if err != nil {
-		panic(err)
-	}
-	stateConn, err := transport.NewConn(ctx, 5*time.Second)
-	if err != nil {
-		panic(err)
+		utils.Logger.Errorf("Error initializing Tello SDK: %v", err)
+		os.Exit(1)
 	}
 
-	stateStream := transport.NewStateStream(ctx, stateConn)
-
-	drone := tello.InitializeSDK(ctx, commandConn, stateStream, nil)
 	drone.TakeOff()
+	time.Sleep(5 * time.Second)
+	drone.Land()
 }

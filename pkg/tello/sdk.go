@@ -1,6 +1,8 @@
 package tello
 
 import (
+	"time"
+
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
@@ -14,7 +16,7 @@ type TelloSDK struct {
 	Host string
 }
 
-func NewTello(host string) *TelloSDK {
+func NewTelloSDK(host string) *TelloSDK {
 	return &TelloSDK{
 		Host: host,
 	}
@@ -46,6 +48,8 @@ func (t *TelloSDK) Initialize() (TelloCommander, error) {
 	if err := commander.Init(); err != nil {
 		utils.Logger.Errorf("Error sending initial 'command' to Tello: %v", err)
 	}
+
+	time.Sleep(1 * time.Second)
 
 	return commander, nil
 }

@@ -7,7 +7,7 @@ I wanted to create a simple and easy-to-use SDK for the DJI Tello drone. The goa
 
 The DJI Tello drone is a small, lightweight drone that is beginner friendly and has a lot of features. 
 
-[DJI Tello Docs](https://dl-cdn.ryzerobotics.com/downloads/tello/20180910/Tello%20SDK%20Documentation%20EN_1.3.pdf)
+[DJI Tello 1.3 Docs](https://dl-cdn.ryzerobotics.com/downloads/tello/20180910/Tello%20SDK%20Documentation%20EN_1.3.pdf)
 
 
 ## High Level Architecture
@@ -37,3 +37,5 @@ The DJI Tello drone is a small, lightweight drone that is beginner friendly and 
 
 ## Roadmap
 - [ ] Add gamepad support
+- [ ] Basic ML support
+- [ ] Swarm manager
