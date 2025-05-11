@@ -20,9 +20,13 @@ import (
   "github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
 )
 
+const (
+	DefaultTelloHost = "192.168.10.1"
+)
+
 func main() {
   // Initialize the SDK
-  sdk := tello.NewTelloSDK()
+  sdk := tello.NewTelloSDK(DefaultTelloHost)
 
   // Create a new drone instance
   drone, err := sdk.Initialize()
@@ -42,8 +46,7 @@ Next, use the `TakeOff` method to make the drone take off:
 
 ```go
   // Make the drone take off
-  err := drone.TakeOff()
-  if err != nil {
+  if err := drone.TakeOff(); err != nil {
     log.Fatalf("Error taking off: %v", err)
     return
   }
@@ -55,8 +58,7 @@ After performing your operations, you can land the drone using the `Land` method
 
 ```go
   // Make the drone land
-  err = drone.Land()
-  if err != nil {
+  if err = drone.Land(); err != nil {
     log.Fatalf("Error landing: %v", err)
     return
   }

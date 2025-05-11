@@ -1,7 +1,6 @@
 package main
 
 import (
-	"os"
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
@@ -18,7 +17,7 @@ func main() {
 	drone, err := sdk.Initialize()
 	if err != nil {
 		utils.Logger.Errorf("Error initializing Tello SDK: %v", err)
-		os.Exit(1)
+		return
 	}
 
 	drone.TakeOff()
