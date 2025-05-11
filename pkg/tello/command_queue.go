@@ -33,7 +33,6 @@ func (cq *CommandQueue) Dequeue() (string, bool) {
 		return "", false
 	}
 
-	// Wait if the time since the last command is less than the minimum interval
 	if !cq.lastCmdTime.IsZero() {
 		elapsed := time.Since(cq.lastCmdTime)
 		if elapsed < cq.minCmdInterval {

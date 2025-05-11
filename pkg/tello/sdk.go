@@ -2,6 +2,7 @@ package tello
 
 import (
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
 const (
@@ -41,5 +42,10 @@ func (t *TelloSDK) Initialize() (TelloCommander, error) {
 	go videoStreamListener.Start()
 
 	commander := NewTelloCommander(commandConnection, commandQueue, stateListener, videoStreamListener)
+
+	if err := commander.Init(); err != nil {
+		utils.Logger.Errorf("Error sending initial 'command' to Tello: %v", err)
+	}
+
 	return commander, nil
 }
