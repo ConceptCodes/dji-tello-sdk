@@ -1,4 +1,4 @@
-package tello
+package shared
 
 type TelloState struct {
 	Pitch int     `json:"pitch"` // Pitch angle of the drone in degrees

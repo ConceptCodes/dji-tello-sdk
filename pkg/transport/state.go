@@ -1,4 +1,3 @@
-// internal/transport/state.go
 package transport
 
 import (
@@ -6,8 +5,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/conceptcodes/dji-tello-sdk-go/internal/parser"
-	"github.com/conceptcodes/dji-tello-sdk-go/tello"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
+	"github.com/conceptcodes/dji-tello-sdk-go/shared"
 )
 
 type StateStream struct {
@@ -16,7 +15,7 @@ type StateStream struct {
 	wg     sync.WaitGroup
 
 	in    <-chan []byte
-	out   chan tello.TelloState
+	out   chan shared.TelloState
 	errCh chan error
 }
 
@@ -27,7 +26,7 @@ func NewStateStream(parent context.Context, conn *Conn) *StateStream {
 		ctx:    ctx,
 		cancel: cancel,
 		in:     conn.State(),
-		out:    make(chan tello.TelloState, 32),
+		out:    make(chan shared.TelloState, 32),
 		errCh:  make(chan error, 4),
 	}
 
@@ -36,7 +35,7 @@ func NewStateStream(parent context.Context, conn *Conn) *StateStream {
 	return s
 }
 
-func (s *StateStream) Out() <-chan tello.TelloState { return s.out }
+func (s *StateStream) Out() <-chan shared.TelloState { return s.out }
 
 func (s *StateStream) Errors() <-chan error { return s.errCh }
 
@@ -56,7 +55,7 @@ func (s *StateStream) loop() {
 			return
 
 		case pkt := <-s.in:
-			state, err := parser.ParseState(string(pkt))
+			state, err := utils.ParseState(string(pkt))
 			if err != nil {
 				s.errCh <- fmt.Errorf("parse state: %w", err)
 				continue

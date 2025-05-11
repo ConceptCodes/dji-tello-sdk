@@ -33,10 +33,10 @@ type Conn struct {
 	cmdQ    chan []byte // internal queue, 1‑Hz drain
 }
 
-func NewConn(timeout time.Duration, ctx context.Context) (*Conn, error) {
+func NewConn(ctx context.Context, timeout time.Duration) (*Conn, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	cmd, err := NewCommandConn(cmdPort, timeout, ctx)
+	cmd, err := NewCommandConn(ctx, cmdPort, timeout)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("command conn: %w", err)

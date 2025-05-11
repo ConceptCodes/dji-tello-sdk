@@ -7,16 +7,16 @@ import (
 	"time"
 )
 
-const droneIP = "192.168.10.1"
+const droneIP = "192.168.10.2"
 
 type CommandConn struct {
+	ctx        context.Context
 	conn       net.PacketConn
 	timeout    time.Duration
-	ctx        context.Context
-	remoteAddr *net.UDPAddr // 192.168.10.1:<port>
+	remoteAddr *net.UDPAddr
 }
 
-func NewCommandConn(port int, timeout time.Duration, ctx context.Context) (*CommandConn, error) {
+func NewCommandConn(ctx context.Context, port int, timeout time.Duration) (*CommandConn, error) {
 	ra, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", droneIP, port))
 	if err != nil {
 		return nil, fmt.Errorf("resolve command addr: %w", err)
