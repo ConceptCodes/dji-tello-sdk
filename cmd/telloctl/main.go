@@ -1,35 +1,31 @@
 package telloctl
 
 import (
-	"context"
-	"fmt"
 	"os"
-	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
-	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
 const (
-	cmdPort   = 8889
-	statePort = 8890
-	timeout   = 5 * time.Second
+	DefaultTelloHost = "192.168.10.1"
 )
 
-var sdk *tello.TelloCommanderConfig
+var drone tello.TelloCommander
 
 func main() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	sdk, err := initializeSDK(ctx)
+	sdk := tello.NewTello(DefaultTelloHost)
+	var err error
+	drone, err = sdk.Initialize()
 	if err != nil {
-		utils.Logger.Errorf("Failed to initialize SDK: %v", err)
+		utils.Logger.Errorf("Error initializing Tello SDK: %v", err)
 		os.Exit(1)
 	}
-	defer sdk.Stop()
+
+	if err := drone.Init(); err != nil {
+		utils.Logger.Errorf("Error sending initial 'command' to Tello: %v", err)
+	}
 
 	rootCmd := &cobra.Command{
 		Use:   "telloctl",
@@ -44,24 +40,6 @@ func main() {
 	)
 
 	if err := rootCmd.Execute(); err != nil {
-		utils.Logger.Errorf("Error: %v", err)
 		os.Exit(1)
 	}
-}
-
-func initializeSDK(ctx context.Context) (*tello.TelloCommanderConfig, error) {
-	stateConn, err := transport.NewConn(ctx, statePort)
-	if err != nil {
-		utils.Logger.Errorf("failed to create state connection: %v", err)
-		return nil, fmt.Errorf("failed to create state connection: %w", err)
-	}
-
-	commandChannel, err := transport.NewCommandConn(ctx, cmdPort, timeout)
-	if err != nil {
-		utils.Logger.Errorf("failed to create command connection: %v", err)
-		return nil, fmt.Errorf("failed to create command connection: %w", err)
-	}
-
-	stateStream := transport.NewStateStream(ctx, stateConn)
-	return tello.InitializeSDK(ctx, *commandChannel, stateStream, nil), nil
 }

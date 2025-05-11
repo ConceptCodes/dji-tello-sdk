@@ -1,66 +1,61 @@
 package transport
 
 import (
-	"context"
 	"fmt"
-	"sync"
+	"net"
 
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
-	"github.com/conceptcodes/dji-tello-sdk-go/shared"
 )
 
-type StateStream struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-
-	in    <-chan []byte
-	out   chan shared.TelloState
-	errCh chan error
+type StateListener struct {
+	server *udp.UDPServer
 }
 
-func NewStateStream(parent context.Context, conn *Conn) *StateStream {
-	ctx, cancel := context.WithCancel(parent)
+func NewStateListener(listenAddr string) (*StateListener, error) {
 
-	s := &StateStream{
-		ctx:    ctx,
-		cancel: cancel,
-		in:     conn.State(),
-		out:    make(chan shared.TelloState, 32),
-		errCh:  make(chan error, 4),
+	server, err := udp.NewUDPServer(
+		listenAddr,
+		udp.WithOnData(onStateData),
+		udp.WithOnError(onStateError),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create UDP server for state listener on %s: %w", listenAddr, err)
 	}
 
-	s.wg.Add(1)
-	go s.loop()
-	return s
+	return &StateListener{
+		server: server,
+	}, nil
 }
 
-func (s *StateStream) Out() <-chan shared.TelloState { return s.out }
-
-func (s *StateStream) Errors() <-chan error { return s.errCh }
-
-func (s *StateStream) Close() {
-	s.cancel()
-	s.wg.Wait()
-	close(s.out)
-	close(s.errCh)
-}
-
-func (s *StateStream) loop() {
-	defer s.wg.Done()
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-
-		case pkt := <-s.in:
-			state, err := utils.ParseState(string(pkt))
-			if err != nil {
-				s.errCh <- fmt.Errorf("parse state: %w", err)
-				continue
-			}
-			s.out <- *state
-		}
+// Start begins listening for state data.
+// This is a blocking call and should typically be run in a goroutine.
+func (sl *StateListener) Start() error {
+	if sl.server == nil {
+		return fmt.Errorf("state listener server is not initialized")
 	}
+	utils.Logger.Infof("Starting Tello state listener on %s", sl.server.Addr)
+	return sl.server.Start()
+}
+
+func (sl *StateListener) Stop() {
+	if sl.server != nil {
+		utils.Logger.Infof("Stopping Tello state listener on %s", sl.server.Addr)
+		sl.server.Stop()
+	} else {
+		utils.Logger.Warnf("Attempted to stop a nil state listener server")
+	}
+}
+
+func onStateData(data []byte, addr *net.UDPAddr) {
+	state, err := utils.ParseState(string(data))
+	if err != nil {
+		utils.Logger.Warnf("Error parsing state data from %s: %v. Data: %s", addr.String(), err, string(data))
+		return
+	}
+	utils.Logger.Debugf("Received Tello State from %s: %+v", addr.String(), state)
+}
+
+func onStateError(err error) {
+	utils.Logger.Errorf("State listener UDP server error: %v", err)
 }

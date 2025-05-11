@@ -1,67 +1,57 @@
 package transport
 
 import (
-	"context"
 	"fmt"
-	"io"
-	"sync"
+	"net"
+
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
-// Typical writers:
-//   - os.Stdout                         -> pipe to `ffplay -i -`
-//   - *os.File                          -> save to .h264 / .mp4 via later mux
-//   - bytes.Buffer / net.Pipe() writer  -> hand off to gmf / gocv decoder
-type VideoStream struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-
-	in   <-chan []byte // from Conn.Video()
-	out  io.Writer
-	errC chan error
+type VideoStreamListener struct {
+	server *udp.UDPServer
 }
 
-func NewVideoStream(parent context.Context, conn *Conn, w io.Writer) *VideoStream {
-	ctx, cancel := context.WithCancel(parent)
-
-	vs := &VideoStream{
-		ctx:    ctx,
-		cancel: cancel,
-		in:     conn.Video(),
-		out:    w,
-		errC:   make(chan error, 4),
+func NewVideoStreamListener(listenAddr string) (*VideoStreamListener, error) {
+	server, err := udp.NewUDPServer(
+		listenAddr,
+		udp.WithOnData(onVideoStreamData),
+		udp.WithOnError(onVideoStreamError),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create UDP server for video stream listener on %s: %w", listenAddr, err)
 	}
 
-	vs.wg.Add(1)
-	go vs.forward()
-	return vs
+	return &VideoStreamListener{
+		server: server,
+	}, nil
 }
 
-func (vs *VideoStream) Errors() <-chan error { return vs.errC }
-
-func (vs *VideoStream) Close() {
-	vs.cancel()
-	vs.wg.Wait()
-	close(vs.errC)
-}
-
-func (vs *VideoStream) forward() {
-	defer vs.wg.Done()
-
-	for {
-		select {
-		case <-vs.ctx.Done():
-			return
-
-		case pkt := <-vs.in:
-			if len(pkt) == 0 {
-				continue
-			}
-			if _, err := vs.out.Write(pkt); err != nil {
-				vs.errC <- fmt.Errorf("video write: %w", err)
-				// Here we bail out because downstream likely closed.
-				return
-			}
-		}
+func (vsl *VideoStreamListener) Start() error {
+	if vsl.server == nil {
+		return fmt.Errorf("video stream listener server is not initialized")
 	}
+	utils.Logger.Infof("Starting Tello video stream listener on %s", vsl.server.Addr)
+	return vsl.server.Start()
+}
+
+func (vsl *VideoStreamListener) Stop() {
+	if vsl.server != nil {
+		utils.Logger.Infof("Stopping Tello video stream listener on %s", vsl.server.Addr)
+		vsl.server.Stop()
+	} else {
+		utils.Logger.Warnf("Attempted to stop a nil video stream listener server")
+	}
+}
+
+func onVideoStreamData(data []byte, addr *net.UDPAddr) {
+	utils.Logger.Debugf("Received %d bytes of video data from %s. (H.264 frame data - not parsed)", len(data), addr.String())
+
+	// TODO: Implement H.264 frame processing (e.g., send to a decoder or save to file).
+	// Example: videoFrameChannel <- dataCopy (if you have a channel for frames)
+}
+
+func onVideoStreamError(err error) {
+	utils.Logger.Errorf("Video stream listener UDP server error: %v", err)
+	// TODO: Consider if any specific errors need more handling (e.g., re-establishing connection if possible).
 }

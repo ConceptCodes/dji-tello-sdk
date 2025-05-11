@@ -1,69 +1,43 @@
 package transport
 
 import (
-	"context"
 	"fmt"
-	"net"
 	"time"
+
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
 )
 
-const droneIP = "192.168.10.2"
-
-type CommandConn struct {
-	ctx        context.Context
-	conn       net.PacketConn
-	timeout    time.Duration
-	remoteAddr *net.UDPAddr
+type CommandConnection struct {
+	client *udp.UDPClient
 }
 
-func NewCommandConn(ctx context.Context, port int, timeout time.Duration) (*CommandConn, error) {
-	ra, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", droneIP, port))
+func NewCommandConnection(addr string, port int) (*CommandConnection, error) {
+	client, err := udp.NewUDPClient(addr, port)
 	if err != nil {
-		return nil, fmt.Errorf("resolve command addr: %w", err)
+		return nil, fmt.Errorf("failed to create UDP client for commands: %w", err)
 	}
-	conn, err := net.ListenPacket("udp", ":0")
-	if err != nil {
-		return nil, fmt.Errorf("open command socket: %w", err)
-	}
-
-	return &CommandConn{
-		conn:       conn,
-		timeout:    timeout,
-		ctx:        ctx,
-		remoteAddr: ra,
+	return &CommandConnection{
+		client: client,
 	}, nil
 }
 
-func (c *CommandConn) Send(b []byte) error {
-	_, err := c.conn.WriteTo(b, c.remoteAddr)
+func (c *CommandConnection) SendCommand(command string) ([]byte, error) {
+	data := []byte(command)
+	if err := c.client.Send(data); err != nil {
+		return nil, fmt.Errorf("failed to send command '%s': %w", command, err)
+	}
+
+	response, err := c.client.Receive(1024, 2*time.Second)
 	if err != nil {
-		return fmt.Errorf("command send: %w", err)
+		return nil, fmt.Errorf("failed to receive response for command '%s': %w", command, err)
+	}
+
+	return response, nil
+}
+
+func (c *CommandConnection) Close() error {
+	if c.client != nil {
+		return c.client.Close()
 	}
 	return nil
 }
-
-func (c *CommandConn) Receive(buf []byte) (int, net.Addr, error) {
-	deadline := time.Now().Add(c.timeout)
-	if d, ok := c.ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
-	}
-	if err := c.conn.SetReadDeadline(deadline); err != nil {
-		return 0, nil, err
-	}
-
-	n, addr, err := c.conn.ReadFrom(buf)
-	_ = c.conn.SetReadDeadline(time.Time{})
-
-	if err != nil {
-		select {
-		case <-c.ctx.Done():
-			return 0, nil, c.ctx.Err()
-		default:
-			return 0, nil, fmt.Errorf("command recv: %w", err)
-		}
-	}
-	return n, addr, nil
-}
-
-func (c *CommandConn) Close() error        { return c.conn.Close() }
-func (c *CommandConn) LocalAddr() net.Addr { return c.conn.LocalAddr() }

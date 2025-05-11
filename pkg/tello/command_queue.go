@@ -1,66 +1,60 @@
 package tello
 
 import (
-	"context"
 	"sync"
 	"time"
-
-	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
 type CommandQueue struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	commandCh chan string
-	wg        sync.WaitGroup
+	mu             sync.Mutex
+	queue          []string
+	lastCmdTime    time.Time
+	minCmdInterval time.Duration
 }
 
-func NewCommandQueue(ctx context.Context) *CommandQueue {
-	ctx, cancel := context.WithCancel(ctx)
+func NewCommandQueue() *CommandQueue {
 	return &CommandQueue{
-		ctx:       ctx,
-		cancel:    cancel,
-		commandCh: make(chan string, 32),
+		queue:          make([]string, 0),
+		minCmdInterval: time.Microsecond, // 1MHz rate limit
 	}
-}
-
-func (cq *CommandQueue) Start(commander *TelloCommanderConfig) {
-	cq.wg.Add(1)
-	go cq.processCommands(commander)
-}
-
-func (cq *CommandQueue) Stop() {
-	cq.cancel()
-	cq.wg.Wait()
-	close(cq.commandCh)
 }
 
 func (cq *CommandQueue) Enqueue(command string) {
-	select {
-	case cq.commandCh <- command:
-		utils.Logger.Infof("Command queued: %s", command)
-	case <-cq.ctx.Done():
-		utils.Logger.Warn("Command queue stopped, unable to enqueue command")
-	}
+	cq.mu.Lock()
+	defer cq.mu.Unlock()
+	cq.queue = append(cq.queue, command)
 }
 
-func (cq *CommandQueue) processCommands(commander *TelloCommanderConfig) {
-	defer cq.wg.Done()
+func (cq *CommandQueue) Dequeue() (string, bool) {
+	cq.mu.Lock()
+	defer cq.mu.Unlock()
 
-	ticker := time.NewTicker(1 * time.Second) // Enforce 1 Hz rate limit
-	defer ticker.Stop()
+	if len(cq.queue) == 0 {
+		return "", false
+	}
 
-	for {
-		select {
-		case <-cq.ctx.Done():
-			return
-		case command := <-cq.commandCh:
-			<-ticker.C
-			if err := commander.commChannel.Send([]byte(command)); err != nil {
-				utils.Logger.Errorf("Failed to send command '%s': %v", command, err)
-			} else {
-				utils.Logger.Infof("Command sent: %s", command)
-			}
+	// Wait if the time since the last command is less than the minimum interval
+	if !cq.lastCmdTime.IsZero() {
+		elapsed := time.Since(cq.lastCmdTime)
+		if elapsed < cq.minCmdInterval {
+			time.Sleep(cq.minCmdInterval - elapsed)
 		}
 	}
+
+	command := cq.queue[0]
+	cq.queue = cq.queue[1:]
+	cq.lastCmdTime = time.Now()
+	return command, true
+}
+
+func (cq *CommandQueue) IsEmpty() bool {
+	cq.mu.Lock()
+	defer cq.mu.Unlock()
+	return len(cq.queue) == 0
+}
+
+func (cq *CommandQueue) Size() int {
+	cq.mu.Lock()
+	defer cq.mu.Unlock()
+	return len(cq.queue)
 }

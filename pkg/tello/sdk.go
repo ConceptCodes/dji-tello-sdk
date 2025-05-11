@@ -1,74 +1,45 @@
 package tello
 
 import (
-	"context"
-	"time"
-
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 )
 
-type ConfigurableSafetyManager struct {
-	batteryThreshold  int
-	keepAliveInterval time.Duration
-	maxAltitude       int
-	minAltitude       int
-	telemetryTimeout  time.Duration
-}
-
 const (
-	defaultBatteryThreshold  = 20
-	defaultKeepAliveInterval = 5 * time.Second
-	defaultMaxAltitude       = 100
-	defaultMinAltitude       = 0
-	defaultTelemetryTimeout  = 10 * time.Second
+	DefaultStateListenAddr = "0.0.0.0:8890"
+	DefaultVideoListenAddr = "0.0.0.0:11111"
 )
 
-func InitializeSDK(ctx context.Context, commChannel transport.CommandConn, stateStream *transport.StateStream, config *ConfigurableSafetyManager) *TelloCommanderConfig {
-	commandQueue := NewCommandQueue(ctx)
-	commander := NewTelloCommander(ctx, commChannel, commandQueue)
+type TelloSDK struct {
+	Host string
+}
 
-	commandCh := make(chan string)
-	commander.StartQueue()
-	commander.StartCommandListener(commandCh)
+func NewTello(host string) *TelloSDK {
+	return &TelloSDK{
+		Host: host,
+	}
+}
 
-	defaultSafetyManager := ConfigurableSafetyManager{
-		batteryThreshold:  defaultBatteryThreshold,
-		keepAliveInterval: defaultKeepAliveInterval,
-		maxAltitude:       defaultMaxAltitude,
-		minAltitude:       defaultMinAltitude,
-		telemetryTimeout:  defaultTelemetryTimeout,
+func (t *TelloSDK) Initialize() (TelloCommander, error) {
+	commandQueue := NewCommandQueue()
+	commandConnection, err := transport.NewCommandConnection(t.Host, 8889)
+	if err != nil {
+		return nil, err
 	}
 
-	if config != nil {
-		if config.batteryThreshold != 0 {
-			defaultSafetyManager.batteryThreshold = config.batteryThreshold
-		}
-		if config.keepAliveInterval != 0 {
-			defaultSafetyManager.keepAliveInterval = config.keepAliveInterval
-		}
-		if config.maxAltitude != 0 {
-			defaultSafetyManager.maxAltitude = config.maxAltitude
-		}
-		if config.minAltitude != 0 {
-			defaultSafetyManager.minAltitude = config.minAltitude
-		}
-		if config.telemetryTimeout != 0 {
-			defaultSafetyManager.telemetryTimeout = config.telemetryTimeout
-		}
+	stateListener, err := transport.NewStateListener(DefaultStateListenAddr)
+	if err != nil {
+		return nil, err
 	}
 
-	safetyManager := NewSafetyManager(
-		ctx,
-		stateStream.Out(),
-		commandQueue,
-		defaultSafetyManager.batteryThreshold,
-		defaultSafetyManager.keepAliveInterval,
-		defaultSafetyManager.maxAltitude,
-		defaultSafetyManager.minAltitude,
-		defaultSafetyManager.telemetryTimeout,
-	)
+	go stateListener.Start()
 
-	safetyManager.Start()
+	videoStreamListener, err := transport.NewVideoStreamListener(DefaultVideoListenAddr)
+	if err != nil {
+		return nil, err
+	}
 
-	return commander
+	go videoStreamListener.Start()
+
+	commander := NewTelloCommander(commandConnection, commandQueue, stateListener, videoStreamListener)
+	return commander, nil
 }
