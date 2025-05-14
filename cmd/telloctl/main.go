@@ -67,6 +67,7 @@ func main() {
 		newSetCmd(drone),
 		commands.NewTakeOffCmd(drone),
 		commands.NewLandCmd(drone),
+		commands.NewEmergencyCmd(drone),
 		commands.NewUpCmd(drone),
 		commands.NewDownCmd(drone),
 		commands.NewFlipCmd(drone),
