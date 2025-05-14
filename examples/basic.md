@@ -45,28 +45,25 @@ func main() {
 Next, use the `TakeOff` method to make the drone take off:
 
 ```go
-  // Make the drone take off
+  log.Println("Attempting to take off...")
   if err := drone.TakeOff(); err != nil {
     log.Fatalf("Error taking off: %v", err)
     return
   }
-  log.Println("Drone is taking off...")
 ```
 
 ## Land
 After performing your operations, you can land the drone using the `Land` method:
 
 ```go
-  // Make the drone land
+  log.Println("Attempting to land...")
   if err = drone.Land(); err != nil {
     log.Fatalf("Error landing: %v", err)
     return
   }
-  log.Println("Drone is landing...")
 ```
 
 ## Notes
 
 - Always ensure the drone is in a safe environment before taking off.
-- Refer to the [DJI Tello SDK documentation](https://github.com/conceptcodes/dji-tello-sdk-go/README.MD) for additional commands and features.
 - Use proper error handling to manage unexpected scenarios during drone operations.
