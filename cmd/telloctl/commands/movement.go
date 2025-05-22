@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewUpCmd(drone tello.TelloCommander) *cobra.Command {
+func UpCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "up [distance]",
 		Short: "Make the drone go up by a specific distance (cm)",
@@ -32,7 +32,7 @@ func NewUpCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewDownCmd(drone tello.TelloCommander) *cobra.Command {
+func DownCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "down [distance]",
 		Short: "Make the drone go down by a specific distance (cm)",
@@ -56,7 +56,7 @@ func NewDownCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewLeftCmd(drone tello.TelloCommander) *cobra.Command {
+func LeftCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "left [distance]",
 		Short: "Make the drone go left by a specific distance (cm)",
@@ -80,7 +80,7 @@ func NewLeftCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewRightCmd(drone tello.TelloCommander) *cobra.Command {
+func RightCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "right [distance]",
 		Short: "Make the drone go right by a specific distance (cm)",
@@ -104,7 +104,7 @@ func NewRightCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewForwardCmd(drone tello.TelloCommander) *cobra.Command {
+func ForwardCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "forward [distance]",
 		Short: "Make the drone go forward by a specific distance (cm)",
@@ -128,7 +128,7 @@ func NewForwardCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewBackwardCmd(drone tello.TelloCommander) *cobra.Command {
+func BackwardCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "backward [distance]",
 		Short: "Make the drone go backward by a specific distance (cm)",
@@ -152,7 +152,7 @@ func NewBackwardCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewClockwiseCmd(drone tello.TelloCommander) *cobra.Command {
+func ClockwiseCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "clockwise [angle]",
 		Short: "Rotate the drone clockwise by a specific angle (degrees)",
@@ -176,7 +176,7 @@ func NewClockwiseCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewCounterClockwiseCmd(drone tello.TelloCommander) *cobra.Command {
+func CounterClockwiseCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "counterclockwise [angle]",
 		Short: "Rotate the drone counterclockwise by a specific angle (degrees)",
@@ -200,7 +200,7 @@ func NewCounterClockwiseCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewFlipCmd(drone tello.TelloCommander) *cobra.Command {
+func FlipCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "flip [direction]",
 		Short: "Make the drone flip in a specific direction (l/r/f/b)",

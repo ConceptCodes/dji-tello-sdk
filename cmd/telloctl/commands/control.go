@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewTakeOffCmd(drone tello.TelloCommander) *cobra.Command {
+func TakeOffCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "takeoff",
 		Short: "Make the drone take off",
@@ -22,7 +22,7 @@ func NewTakeOffCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewLandCmd(drone tello.TelloCommander) *cobra.Command {
+func LandCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "land",
 		Short: "Make the drone land",
@@ -37,7 +37,7 @@ func NewLandCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewEmergencyCmd(drone tello.TelloCommander) *cobra.Command {
+func EmergencyCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "emergency",
 		Short: "Stop all motors immediately",

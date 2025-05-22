@@ -1,12 +1,10 @@
 package tello
 
 import (
-	"sync"
 	"time"
 )
 
 type CommandQueue struct {
-	mu             sync.Mutex
 	queue          []string
 	lastCmdTime    time.Time
 	minCmdInterval time.Duration
@@ -15,20 +13,15 @@ type CommandQueue struct {
 func NewCommandQueue() *CommandQueue {
 	return &CommandQueue{
 		queue:          make([]string, 0),
-		minCmdInterval: time.Microsecond, // 1MHz rate limit
+		minCmdInterval: time.Second * 1,
 	}
 }
 
 func (cq *CommandQueue) Enqueue(command string) {
-	cq.mu.Lock()
-	defer cq.mu.Unlock()
 	cq.queue = append(cq.queue, command)
 }
 
 func (cq *CommandQueue) Dequeue() (string, bool) {
-	cq.mu.Lock()
-	defer cq.mu.Unlock()
-
 	if len(cq.queue) == 0 {
 		return "", false
 	}
@@ -47,13 +40,9 @@ func (cq *CommandQueue) Dequeue() (string, bool) {
 }
 
 func (cq *CommandQueue) IsEmpty() bool {
-	cq.mu.Lock()
-	defer cq.mu.Unlock()
 	return len(cq.queue) == 0
 }
 
 func (cq *CommandQueue) Size() int {
-	cq.mu.Lock()
-	defer cq.mu.Unlock()
 	return len(cq.queue)
 }

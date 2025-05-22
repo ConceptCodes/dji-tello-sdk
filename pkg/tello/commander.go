@@ -83,10 +83,12 @@ func (t *telloCommander) processCommandQueue() {
 		if !ok {
 			continue
 		}
+
 		err := t.sendCommand(command)
 		if err != nil {
-			utils.Logger.Errorf("Failed to send command '%s': %v", command, err)
-			// Decide on error handling: retry, log, or stop processing
+			// Only log at this layer, do not wrap or re-log elsewhere
+			utils.Logger.Errorf("Failed to process command '%s': %v", command, err)
+			continue
 		}
 	}
 }
@@ -96,13 +98,13 @@ func (t *telloCommander) sendCommand(cmd string) error {
 
 	response, err := t.commandClient.SendCommand(cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("send command '%s' failed: %w", cmd, err)
 	}
 
 	respStr := string(response)
 	if respStr != "ok" && respStr != "OK" {
 		if respStr == "error" || respStr == "ERROR" {
-			return err
+			return fmt.Errorf("command '%s' returned error: %w", cmd, err)
 		}
 		return fmt.Errorf("unexpected response to command '%s': %s", cmd, respStr)
 	}
@@ -112,19 +114,18 @@ func (t *telloCommander) sendCommand(cmd string) error {
 }
 
 func (t *telloCommander) Init() error {
-	utils.Logger.Debugf("Initializing Tello Commander")
-	t.commandQueue.Enqueue("command")
-	return nil
+	utils.Logger.Debugf("Initializing SDK mode")
+	return t.sendCommand("command")
 }
 
 func (t *telloCommander) TakeOff() error {
-	utils.Logger.Debugf("Taking off")
+	utils.Logger.Debugf("Enqueuing Take off Command")
 	t.commandQueue.Enqueue("takeoff")
 	return nil
 }
 
 func (t *telloCommander) Land() error {
-	utils.Logger.Debugf("Landing")
+	utils.Logger.Debugf("Enqueuing Land Command")
 	t.commandQueue.Enqueue("land")
 	return nil
 }
@@ -349,7 +350,7 @@ func (t *telloCommander) SetRcControl(a, b, c, d int) error {
 
 func (t *telloCommander) SetWiFiCredentials(ssid, password string) error {
 	if err := utils.ValidateNumberInRange(len(ssid), 1, 32); err != nil {
-		return err
+		return fmt.Errorf("SSID must be greater than 1 and less than 32 chars")
 	}
 	if len(password) < 1 {
 		return fmt.Errorf("password length must be greater than 1 character")

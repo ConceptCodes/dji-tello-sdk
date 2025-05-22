@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewSetSpeedCmd(drone tello.TelloCommander) *cobra.Command {
+func SetSpeedCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "speed [speed]",
 		Short: "Set the speed of the drone (cm/s)",
@@ -28,7 +28,7 @@ func NewSetSpeedCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewSetWifiCredentialsCmd(drone tello.TelloCommander) *cobra.Command {
+func SetWifiCredentialsCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "wifi [SSID] [PASSWORD]",
 		Short: "Set the Wi-Fi credentials of the drone",

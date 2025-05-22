@@ -1,10 +1,9 @@
 package tello
 
 import (
-	"time"
+	"fmt"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
-	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
 const (
@@ -12,44 +11,32 @@ const (
 	DefaultVideoListenAddr = "0.0.0.0:11111"
 )
 
-type TelloSDK struct {
-	Host string
-}
-
-func NewTelloSDK(host string) *TelloSDK {
-	return &TelloSDK{
-		Host: host,
-	}
-}
-
-func (t *TelloSDK) Initialize() (TelloCommander, error) {
+func Initialize() (TelloCommander, error) {
 	commandQueue := NewCommandQueue()
-	commandConnection, err := transport.NewCommandConnection(t.Host, 8889)
+	commandConnection, err := transport.NewCommandConnection()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize command connection: %w", err)
 	}
 
 	stateListener, err := transport.NewStateListener(DefaultStateListenAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize state listener: %w", err)
 	}
 
-	go stateListener.Start()
+	// go stateListener.Start()
 
 	videoStreamListener, err := transport.NewVideoStreamListener(DefaultVideoListenAddr)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize video stream listener: %w", err)
 	}
 
-	go videoStreamListener.Start()
+	// go videoStreamListener.Start()
 
 	commander := NewTelloCommander(commandConnection, commandQueue, stateListener, videoStreamListener)
 
 	if err := commander.Init(); err != nil {
-		utils.Logger.Errorf("Error sending initial 'command' to Tello: %v", err)
+		return nil, fmt.Errorf("failed to send the initial 'command' to Tello: %w", err)
 	}
-
-	time.Sleep(1 * time.Second)
 
 	return commander, nil
 }

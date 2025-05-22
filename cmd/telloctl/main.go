@@ -10,10 +10,6 @@ import (
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
-const (
-	DefaultTelloHost = "192.168.10.1"
-)
-
 func newGetCmd(drone tello.TelloCommander) *cobra.Command {
 	getCmd := &cobra.Command{
 		Use:   "get",
@@ -21,15 +17,15 @@ func newGetCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 
 	getCmd.AddCommand(
-		commands.NewGetBatteryCmd(drone),
-		commands.NewGetHeightCmd(drone),
-		commands.NewGetSpeedCmd(drone),
-		commands.NewGetTimeCmd(drone),
-		commands.NewGetTemperatureCmd(drone),
-		commands.NewGetAttitudeCmd(drone),
-		commands.NewGetBarometerCmd(drone),
-		commands.NewGetAccelerationCmd(drone),
-		commands.NewGetTofCmd(drone),
+		commands.GetBatteryCmd(drone),
+		commands.GetHeightCmd(drone),
+		commands.GetSpeedCmd(drone),
+		commands.GetTimeCmd(drone),
+		commands.GetTemperatureCmd(drone),
+		commands.GetAttitudeCmd(drone),
+		commands.GetBarometerCmd(drone),
+		commands.GetAccelerationCmd(drone),
+		commands.GetTofCmd(drone),
 	)
 
 	return getCmd
@@ -42,16 +38,15 @@ func newSetCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 
 	setCmd.AddCommand(
-		commands.NewSetSpeedCmd(drone),
-		commands.NewSetWifiCredentialsCmd(drone),
+		commands.SetSpeedCmd(drone),
+		commands.SetWifiCredentialsCmd(drone),
 	)
 
 	return setCmd
 }
 
 func main() {
-	sdk := tello.NewTelloSDK(DefaultTelloHost)
-	drone, err := sdk.Initialize()
+	drone, err := tello.Initialize()
 	if err != nil {
 		utils.Logger.Errorf("Error initializing Tello SDK: %v", err)
 		os.Exit(1)
@@ -65,18 +60,18 @@ func main() {
 	rootCmd.AddCommand(
 		newGetCmd(drone),
 		newSetCmd(drone),
-		commands.NewTakeOffCmd(drone),
-		commands.NewLandCmd(drone),
-		commands.NewEmergencyCmd(drone),
-		commands.NewUpCmd(drone),
-		commands.NewDownCmd(drone),
-		commands.NewFlipCmd(drone),
-		commands.NewBackwardCmd(drone),
-		commands.NewForwardCmd(drone),
-		commands.NewLeftCmd(drone),
-		commands.NewRightCmd(drone),
-		commands.NewClockwiseCmd(drone),
-		commands.NewCounterClockwiseCmd(drone),
+		commands.TakeOffCmd(drone),
+		commands.LandCmd(drone),
+		commands.EmergencyCmd(drone),
+		commands.UpCmd(drone),
+		commands.DownCmd(drone),
+		commands.FlipCmd(drone),
+		commands.BackwardCmd(drone),
+		commands.ForwardCmd(drone),
+		commands.LeftCmd(drone),
+		commands.RightCmd(drone),
+		commands.ClockwiseCmd(drone),
+		commands.CounterClockwiseCmd(drone),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

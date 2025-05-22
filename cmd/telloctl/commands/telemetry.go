@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func NewGetBatteryCmd(drone tello.TelloCommander) *cobra.Command {
+func GetBatteryCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "battery",
 		Short: "Get the current battery percentage of the drone",
@@ -22,7 +22,7 @@ func NewGetBatteryCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewGetHeightCmd(drone tello.TelloCommander) *cobra.Command {
+func GetHeightCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "height",
 		Short: "Get the current height of the drone (cm)",
@@ -37,7 +37,7 @@ func NewGetHeightCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewGetSpeedCmd(drone tello.TelloCommander) *cobra.Command {
+func GetSpeedCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "speed",
 		Short: "Get the current speed of the drone (cm/s)",
@@ -52,7 +52,7 @@ func NewGetSpeedCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewGetTimeCmd(drone tello.TelloCommander) *cobra.Command {
+func GetTimeCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "time",
 		Short: "Get the current flight time of the drone (seconds)",
@@ -67,7 +67,7 @@ func NewGetTimeCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewGetTemperatureCmd(drone tello.TelloCommander) *cobra.Command {
+func GetTemperatureCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "temperature",
 		Short: "Get the current temperature of the drone (°C)",
@@ -82,7 +82,7 @@ func NewGetTemperatureCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewGetAttitudeCmd(drone tello.TelloCommander) *cobra.Command {
+func GetAttitudeCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "attitude",
 		Short: "Get the current attitude of the drone (pitch, roll, yaw)",
@@ -97,7 +97,7 @@ func NewGetAttitudeCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewGetBarometerCmd(drone tello.TelloCommander) *cobra.Command {
+func GetBarometerCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "barometer",
 		Short: "Get the current barometer reading of the drone (m)",
@@ -112,7 +112,7 @@ func NewGetBarometerCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewGetAccelerationCmd(drone tello.TelloCommander) *cobra.Command {
+func GetAccelerationCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "acceleration",
 		Short: "Get the current acceleration of the drone (x, y, z)",
@@ -127,7 +127,7 @@ func NewGetAccelerationCmd(drone tello.TelloCommander) *cobra.Command {
 	}
 }
 
-func NewGetTofCmd(drone tello.TelloCommander) *cobra.Command {
+func GetTofCmd(drone tello.TelloCommander) *cobra.Command {
 	return &cobra.Command{
 		Use:   "tof",
 		Short: "Get the distance value from time of flight of the drone (cm)",
