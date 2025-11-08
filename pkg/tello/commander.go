@@ -18,10 +18,16 @@ const (
 )
 
 type telloCommander struct {
-	commandClient       *transport.CommandConnection
+	commandClient       CommandConnection
 	commandQueue        *PriorityCommandQueue
 	stateListener       *transport.StateListener
 	videoStreamListener *transport.VideoStreamListener
+}
+
+// CommandConnection interface for command sending
+type CommandConnection interface {
+	SendCommand(command string) (string, error)
+	Close() error
 }
 
 type TelloCommander interface {
@@ -62,7 +68,7 @@ type TelloCommander interface {
 }
 
 func NewTelloCommander(
-	commandClient *transport.CommandConnection,
+	commandClient CommandConnection,
 	commandQueue *PriorityCommandQueue,
 	stateListener *transport.StateListener,
 	videoStreamListener *transport.VideoStreamListener,

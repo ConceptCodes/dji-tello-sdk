@@ -9,8 +9,15 @@ import (
 
 const host = "192.168.10.1:8889"
 
+// UDPClientInterface defines the interface for UDP client operations
+type UDPClientInterface interface {
+	Send(data []byte) error
+	Receive(bufferSize int, timeout time.Duration) (string, error)
+	Close() error
+}
+
 type CommandConnection struct {
-	client *udp.UDPClient
+	client UDPClientInterface
 }
 
 func NewCommandConnection() (*CommandConnection, error) {
@@ -21,6 +28,13 @@ func NewCommandConnection() (*CommandConnection, error) {
 	return &CommandConnection{
 		client: client,
 	}, nil
+}
+
+// NewCommandConnectionWithClient creates a CommandConnection with a custom UDP client (for testing)
+func NewCommandConnectionWithClient(client UDPClientInterface) *CommandConnection {
+	return &CommandConnection{
+		client: client,
+	}
 }
 
 func (c *CommandConnection) SendCommand(command string) (string, error) {

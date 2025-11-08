@@ -19,8 +19,17 @@ func ParseFloat(value string) (float64, error) {
 func ParseState(data string) (*shared.TelloState, error) {
 	state := &shared.TelloState{}
 
+	if data == "" {
+		return state, nil
+	}
+
 	parts := strings.Split(data, ";")
 	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue // Skip empty parts
+		}
+		
 		telemetryData := strings.Split(part, ":")
 		if len(telemetryData) != 2 {
 			return nil, fmt.Errorf("invalid telemetry data: %s", part)
