@@ -2,6 +2,7 @@ package tello
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
@@ -18,7 +19,7 @@ const (
 
 type telloCommander struct {
 	commandClient       *transport.CommandConnection
-	commandQueue        *CommandQueue
+	commandQueue        *PriorityCommandQueue
 	stateListener       *transport.StateListener
 	videoStreamListener *transport.VideoStreamListener
 }
@@ -62,7 +63,7 @@ type TelloCommander interface {
 
 func NewTelloCommander(
 	commandClient *transport.CommandConnection,
-	commandQueue *CommandQueue,
+	commandQueue *PriorityCommandQueue,
 	stateListener *transport.StateListener,
 	videoStreamListener *transport.VideoStreamListener,
 ) TelloCommander {
@@ -112,6 +113,23 @@ func (t *telloCommander) sendCommand(cmd string) error {
 	return nil
 }
 
+func (t *telloCommander) sendReadCommand(cmd string) (string, error) {
+	utils.Logger.Debugf("Sending read command: %s", cmd)
+
+	response, err := t.commandClient.SendCommand(cmd)
+	if err != nil {
+		return "", fmt.Errorf("send read command '%s' failed: %w", cmd, err)
+	}
+
+	respStr := string(response)
+	if respStr == "error" || respStr == "ERROR" {
+		return "", fmt.Errorf("read command '%s' returned error", cmd)
+	}
+
+	utils.Logger.Debugf("Read command '%s' response: %s", cmd, respStr)
+	return respStr, nil
+}
+
 func (t *telloCommander) Init() error {
 	utils.Logger.Debugf("Initializing SDK mode")
 	return t.sendCommand("command")
@@ -119,31 +137,31 @@ func (t *telloCommander) Init() error {
 
 func (t *telloCommander) TakeOff() error {
 	utils.Logger.Debugf("Enqueuing Take off Command")
-	t.commandQueue.Enqueue("takeoff")
+	t.commandQueue.EnqueueControl("takeoff")
 	return nil
 }
 
 func (t *telloCommander) Land() error {
 	utils.Logger.Debugf("Enqueuing Land Command")
-	t.commandQueue.Enqueue("land")
+	t.commandQueue.EnqueueControl("land")
 	return nil
 }
 
 func (t *telloCommander) StreamOn() error {
 	utils.Logger.Debugf("Starting video stream")
-	t.commandQueue.Enqueue("streamon")
+	t.commandQueue.EnqueueControl("streamon")
 	return nil
 }
 
 func (t *telloCommander) StreamOff() error {
 	utils.Logger.Debugf("Stopping video stream")
-	t.commandQueue.Enqueue("streamoff")
+	t.commandQueue.EnqueueControl("streamoff")
 	return nil
 }
 
 func (t *telloCommander) Emergency() error {
 	utils.Logger.Debugf("Emergency landing")
-	t.commandQueue.Enqueue("emergency")
+	t.commandQueue.EnqueueControl("emergency")
 	return nil
 }
 
@@ -155,7 +173,7 @@ func (t *telloCommander) Up(distance int) error {
 	utils.Logger.Debugf("Flying up %d cm", distance)
 	cmd := fmt.Sprintf("up %d", distance)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -167,7 +185,7 @@ func (t *telloCommander) Down(distance int) error {
 	utils.Logger.Debugf("Flying down %d cm", distance)
 	cmd := fmt.Sprintf("down %d", distance)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -179,7 +197,7 @@ func (t *telloCommander) Left(distance int) error {
 	utils.Logger.Debugf("Flying left %d cm", distance)
 	cmd := fmt.Sprintf("left %d", distance)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -191,7 +209,7 @@ func (t *telloCommander) Right(distance int) error {
 	utils.Logger.Debugf("Flying right %d cm", distance)
 	cmd := fmt.Sprintf("right %d", distance)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -203,7 +221,7 @@ func (t *telloCommander) Forward(distance int) error {
 	utils.Logger.Debugf("Flying forward %d cm", distance)
 	cmd := fmt.Sprintf("forward %d", distance)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -215,7 +233,7 @@ func (t *telloCommander) Backward(distance int) error {
 	utils.Logger.Debugf("Flying backward %d cm", distance)
 	cmd := fmt.Sprintf("back %d", distance)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -227,7 +245,7 @@ func (t *telloCommander) Clockwise(angle int) error {
 	utils.Logger.Debugf("Rotating clockwise %d degrees", angle)
 	cmd := fmt.Sprintf("cw %d", angle)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -239,7 +257,7 @@ func (t *telloCommander) CounterClockwise(angle int) error {
 	utils.Logger.Debugf("Rotating counter-clockwise %d degrees", angle)
 	cmd := fmt.Sprintf("ccw %d", angle)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -247,7 +265,7 @@ func (t *telloCommander) Flip(direction FlipDirection) error {
 	utils.Logger.Debugf("Flipping %s", direction)
 	cmd := fmt.Sprintf("flip %s", direction)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -268,7 +286,7 @@ func (t *telloCommander) Go(x, y, z, speed int) error {
 	utils.Logger.Debugf("Flying to (%d, %d, %d) with speed %d", x, y, z, speed)
 	cmd := fmt.Sprintf("go %d %d %d %d", x, y, z, speed)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -310,7 +328,7 @@ func (t *telloCommander) Curve(x1, y1, z1, x2, y2, z2, speed int) error {
 	utils.Logger.Debugf("Flying in a curve to (%d, %d, %d) and (%d, %d, %d) with speed %d", x1, y1, z1, x2, y2, z2, speed)
 	cmd := fmt.Sprintf("curve %d %d %d %d %d %d %d", x1, y1, z1, x2, y2, z2, speed)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -322,7 +340,7 @@ func (t *telloCommander) SetSpeed(speed int) error {
 	utils.Logger.Debugf("Setting speed to %d cm/s", speed)
 	cmd := fmt.Sprintf("speed %d", speed)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -343,7 +361,7 @@ func (t *telloCommander) SetRcControl(a, b, c, d int) error {
 	utils.Logger.Debugf("Setting RC control to (%d, %d, %d, %d)", a, b, c, d)
 	cmd := fmt.Sprintf("rc %d %d %d %d", a, b, c, d)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
@@ -358,53 +376,129 @@ func (t *telloCommander) SetWiFiCredentials(ssid, password string) error {
 	utils.Logger.Debugf("Setting WiFi credentials to SSID: %s, Password: %s", ssid, password)
 	cmd := fmt.Sprintf("wifi %s %s", ssid, password)
 
-	t.commandQueue.Enqueue(cmd)
+	t.commandQueue.EnqueueControl(cmd)
 	return nil
 }
 
 func (t *telloCommander) GetSpeed() (int, error) {
-	// TODO: Implement the logic to get the speed from the drone
-	return 0, nil
+	response, err := t.sendReadCommand("speed?")
+	if err != nil {
+		return 0, err
+	}
+	return utils.ParseInt(response)
 }
 
 func (t *telloCommander) GetBatteryPercentage() (int, error) {
-	// TODO: Implement the logic to get the battery percentage from the drone
-	return 0, nil
+	response, err := t.sendReadCommand("battery?")
+	if err != nil {
+		return 0, err
+	}
+	return utils.ParseInt(response)
 }
 
 func (t *telloCommander) GetTime() (int, error) {
-	// TODO: Implement the logic to get the flight time from the drone
-	return 0, nil
+	response, err := t.sendReadCommand("time?")
+	if err != nil {
+		return 0, err
+	}
+	return utils.ParseInt(response)
 }
 
 func (t *telloCommander) GetHeight() (int, error) {
-	// TODO: Implement the logic to get the height from the drone
-	return 0, nil
+	response, err := t.sendReadCommand("height?")
+	if err != nil {
+		return 0, err
+	}
+	return utils.ParseInt(response)
 }
 
 func (t *telloCommander) GetTemperature() (int, error) {
-	// TODO: Implement the logic to get the temperature from the drone
-	return 0, nil
+	response, err := t.sendReadCommand("temp?")
+	if err != nil {
+		return 0, err
+	}
+	return utils.ParseInt(response)
 }
 
 func (t *telloCommander) GetAttitude() (int, int, int, error) {
-	// TODO: Implement the logic to get the attitude from the drone
-	return 0, 0, 0, nil
+	response, err := t.sendReadCommand("attitude?")
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	
+	// Response format: "pitch roll yaw"
+	parts := strings.Fields(response)
+	if len(parts) != 3 {
+		return 0, 0, 0, fmt.Errorf("unexpected attitude response format: %s", response)
+	}
+	
+	pitch, err := utils.ParseInt(parts[0])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse pitch: %w", err)
+	}
+	
+	roll, err := utils.ParseInt(parts[1])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse roll: %w", err)
+	}
+	
+	yaw, err := utils.ParseInt(parts[2])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse yaw: %w", err)
+	}
+	
+	return pitch, roll, yaw, nil
 }
 
 func (t *telloCommander) GetBarometer() (int, error) {
-	// TODO: Implement the logic to get the barometer reading from the drone
-	return 0, nil
+	response, err := t.sendReadCommand("baro?")
+	if err != nil {
+		return 0, err
+	}
+	// Barometer returns float value in meters, but we return int for consistency
+	barometerFloat, err := utils.ParseFloat(response)
+	if err != nil {
+		return 0, err
+	}
+	return int(barometerFloat), nil
 }
 
 func (t *telloCommander) GetAcceleration() (int, int, int, error) {
-	// TODO: Implement the logic to get the acceleration from the drone
-	return 0, 0, 0, nil
+	response, err := t.sendReadCommand("acceleration?")
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	
+	// Response format: "x y z" (in 0.001g units)
+	parts := strings.Fields(response)
+	if len(parts) != 3 {
+		return 0, 0, 0, fmt.Errorf("unexpected acceleration response format: %s", response)
+	}
+	
+	agx, err := utils.ParseInt(parts[0])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse acceleration x: %w", err)
+	}
+	
+	agy, err := utils.ParseInt(parts[1])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse acceleration y: %w", err)
+	}
+	
+	agz, err := utils.ParseInt(parts[2])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse acceleration z: %w", err)
+	}
+	
+	return agx, agy, agz, nil
 }
 
 func (t *telloCommander) GetTof() (int, error) {
-	// TODO: Implement the logic to get the time of flight distance from the drone
-	return 0, nil
+	response, err := t.sendReadCommand("tof?")
+	if err != nil {
+		return 0, err
+	}
+	return utils.ParseInt(response)
 }
 
 // Initialize creates and configures a new TelloCommander with all necessary components
@@ -416,7 +510,7 @@ func Initialize() (TelloCommander, error) {
 		return nil, fmt.Errorf("failed to create command connection: %w", err)
 	}
 
-	commandQueue := NewCommandQueue()
+	commandQueue := NewPriorityCommandQueue()
 
 	// Use standard Tello SDK ports
 	stateListener, err := transport.NewStateListener(":8890")
