@@ -1,48 +1,55 @@
 package tello
 
 import (
-	"time"
+	"sync"
 )
 
 type CommandQueue struct {
-	queue          []string
-	lastCmdTime    time.Time
-	minCmdInterval time.Duration
+	commands []string
+	mutex    sync.Mutex
+	cond     *sync.Cond
 }
 
 func NewCommandQueue() *CommandQueue {
-	return &CommandQueue{
-		queue:          make([]string, 0),
-		minCmdInterval: time.Second * 1,
+	cq := &CommandQueue{
+		commands: make([]string, 0),
 	}
+	cq.cond = sync.NewCond(&cq.mutex)
+	return cq
 }
 
 func (cq *CommandQueue) Enqueue(command string) {
-	cq.queue = append(cq.queue, command)
+	cq.mutex.Lock()
+	defer cq.mutex.Unlock()
+	cq.commands = append(cq.commands, command)
+	cq.cond.Signal()
 }
 
 func (cq *CommandQueue) Dequeue() (string, bool) {
-	if len(cq.queue) == 0 {
+	cq.mutex.Lock()
+	defer cq.mutex.Unlock()
+
+	for len(cq.commands) == 0 {
+		cq.cond.Wait()
+	}
+
+	if len(cq.commands) == 0 {
 		return "", false
 	}
 
-	if !cq.lastCmdTime.IsZero() {
-		elapsed := time.Since(cq.lastCmdTime)
-		if elapsed < cq.minCmdInterval {
-			time.Sleep(cq.minCmdInterval - elapsed)
-		}
-	}
-
-	command := cq.queue[0]
-	cq.queue = cq.queue[1:]
-	cq.lastCmdTime = time.Now()
+	command := cq.commands[0]
+	cq.commands = cq.commands[1:]
 	return command, true
 }
 
-func (cq *CommandQueue) IsEmpty() bool {
-	return len(cq.queue) == 0
+func (cq *CommandQueue) Size() int {
+	cq.mutex.Lock()
+	defer cq.mutex.Unlock()
+	return len(cq.commands)
 }
 
-func (cq *CommandQueue) Size() int {
-	return len(cq.queue)
+func (cq *CommandQueue) IsEmpty() bool {
+	cq.mutex.Lock()
+	defer cq.mutex.Unlock()
+	return len(cq.commands) == 0
 }

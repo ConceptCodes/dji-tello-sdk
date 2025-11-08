@@ -13,7 +13,6 @@ type StateListener struct {
 }
 
 func NewStateListener(listenAddr string) (*StateListener, error) {
-
 	server, err := udp.NewUDPServer(
 		listenAddr,
 		udp.WithOnData(onStateData),

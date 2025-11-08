@@ -28,7 +28,7 @@ func (c *CommandConnection) SendCommand(command string) (string, error) {
 		return "", fmt.Errorf("UDP client is not initialized")
 	}
 
-	data := []byte(command + "\r\n") 
+	data := []byte(command + "\r\n")
 	if err := c.client.Send(data); err != nil {
 		return "", fmt.Errorf("failed to send command '%s': %w", command, err)
 	}

@@ -66,7 +66,6 @@ func NewTelloCommander(
 	stateListener *transport.StateListener,
 	videoStreamListener *transport.VideoStreamListener,
 ) TelloCommander {
-
 	tc := &telloCommander{
 		commandClient:       commandClient,
 		commandQueue:        commandQueue,
@@ -406,4 +405,44 @@ func (t *telloCommander) GetAcceleration() (int, int, int, error) {
 func (t *telloCommander) GetTof() (int, error) {
 	// TODO: Implement the logic to get the time of flight distance from the drone
 	return 0, nil
+}
+
+// Initialize creates and configures a new TelloCommander with all necessary components
+func Initialize() (TelloCommander, error) {
+	utils.Logger.Info("Initializing Tello SDK...")
+
+	commandClient, err := transport.NewCommandConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create command connection: %w", err)
+	}
+
+	commandQueue := NewCommandQueue()
+
+	// Use standard Tello SDK ports
+	stateListener, err := transport.NewStateListener(":8890")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create state listener: %w", err)
+	}
+
+	videoStreamListener, err := transport.NewVideoStreamListener(":11111")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create video stream listener: %w", err)
+	}
+
+	commander := NewTelloCommander(commandClient, commandQueue, stateListener, videoStreamListener)
+
+	go func() {
+		if err := stateListener.Start(); err != nil {
+			utils.Logger.Errorf("Failed to start state listener: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := videoStreamListener.Start(); err != nil {
+			utils.Logger.Errorf("Failed to start video stream listener: %v", err)
+		}
+	}()
+
+	utils.Logger.Info("Tello SDK initialized successfully")
+	return commander, nil
 }
