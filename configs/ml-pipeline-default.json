@@ -1,0 +1,26 @@
+{
+  "processors": [],
+  "pipeline": {
+    "max_concurrent_processors": 4,
+    "frame_buffer_size": 30,
+    "worker_pool_size": 2,
+    "enable_metrics": true,
+    "target_fps": 30
+  },
+  "overlay": {
+    "enabled": true,
+    "show_fps": true,
+    "show_detections": true,
+    "show_tracking": true,
+    "show_confidence": true,
+    "colors": {
+      "car": "#0000FF",
+      "default": "#00FF00",
+      "face": "#FF00FF",
+      "person": "#FF0000"
+    },
+    "line_width": 2,
+    "font_size": 12,
+    "font_scale": 0.5
+  }
+}

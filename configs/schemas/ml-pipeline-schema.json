@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "processors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {"type": "string"},
+          "type": {"type": "string", "enum": ["yolo", "face", "slam", "gesture", "segmentation", "custom"]},
+          "enabled": {"type": "boolean"},
+          "priority": {"type": "integer", "minimum": 0},
+          "config_file": {"type": "string"}
+        },
+        "required": ["name", "type", "enabled", "priority"]
+      }
+    },
+    "pipeline": {
+      "type": "object",
+      "properties": {
+        "max_concurrent_processors": {"type": "integer", "minimum": 1},
+        "frame_buffer_size": {"type": "integer", "minimum": 1},
+        "worker_pool_size": {"type": "integer", "minimum": 1},
+        "enable_metrics": {"type": "boolean"},
+        "target_fps": {"type": "integer", "minimum": 1, "maximum": 60}
+      },
+      "required": ["max_concurrent_processors", "frame_buffer_size", "worker_pool_size", "enable_metrics", "target_fps"]
+    },
+    "overlay": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "show_fps": {"type": "boolean"},
+        "show_detections": {"type": "boolean"},
+        "show_tracking": {"type": "boolean"},
+        "show_confidence": {"type": "boolean"},
+        "colors": {"type": "object"},
+        "line_width": {"type": "integer", "minimum": 1},
+        "font_size": {"type": "integer", "minimum": 1},
+        "font_scale": {"type": "number", "minimum": 0.1}
+      },
+      "required": ["enabled", "show_fps", "show_detections", "show_tracking", "show_confidence"]
+    }
+  },
+  "required": ["processors", "pipeline", "overlay"]
+}

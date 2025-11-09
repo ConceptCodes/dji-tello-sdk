@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
@@ -105,6 +106,13 @@ func (vsl *VideoStreamListener) onVideoStreamData(data []byte, addr *net.UDPAddr
 	default:
 		utils.Logger.Warnf("Frame channel full, dropping frame %d", frame.SeqNum)
 	}
+}
+
+// ToEnhancedFrame converts VideoFrame to EnhancedVideoFrame for ML processing
+func (vf *VideoFrame) ToEnhancedFrame() *ml.EnhancedVideoFrame {
+	enhanced := ml.NewEnhancedVideoFrame(vf.Data, vf.Timestamp, vf.SeqNum)
+	enhanced.IsKeyFrame = vf.IsKeyFrame
+	return enhanced
 }
 
 func onVideoStreamError(err error) {
