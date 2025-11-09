@@ -1,4 +1,4 @@
-package telloctl
+package main
 
 import (
 	"os"
@@ -75,6 +75,7 @@ func main() {
 		commands.StreamOnCmd(drone),
 		commands.StreamOffCmd(drone),
 		commands.StreamCmd(drone),
+		commands.VideoGUICmd(drone),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

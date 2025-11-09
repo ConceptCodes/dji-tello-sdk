@@ -92,8 +92,14 @@ func main() {
 ```go
 import "github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 
-// Create a video recorder
+// Create a video recorder (H.264 format)
 recorder, err := transport.NewVideoRecorder(":11111", "output.h264")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Or create an MP4 video recorder
+mp4Recorder, err := transport.NewVideoRecorderMP4(":11111", "output.mp4")
 if err != nil {
     log.Fatal(err)
 }
@@ -124,8 +130,17 @@ telloctl streamoff
 # Monitor video stream with statistics
 telloctl stream
 
-# Monitor for 60 seconds and save to file
+# Monitor for 60 seconds and save to file (H.264)
 telloctl stream -d 60 -s video.h264
+
+# Monitor for 60 seconds and save to MP4 file
+telloctl stream -d 60 -s video.mp4 -f mp4
+
+# Start video GUI (web interface)
+telloctl video-gui
+
+# Start video GUI (terminal interface)
+telloctl video-gui -t terminal
 ```
 
 #### Video Frame Structure

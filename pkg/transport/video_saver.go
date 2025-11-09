@@ -70,10 +70,10 @@ func (vs *VideoSaver) StopRecording() error {
 
 	vs.isRecording = false
 	duration := time.Since(vs.startTime)
-	
-	utils.Logger.Infof("Stopped recording. Frames: %d, Size: %.2f MB, Duration: %v", 
+
+	utils.Logger.Infof("Stopped recording. Frames: %d, Size: %.2f MB, Duration: %v",
 		vs.frameCount, float64(vs.totalBytes)/(1024*1024), duration)
-	
+
 	return nil
 }
 
@@ -108,7 +108,7 @@ func (vs *VideoSaver) SaveFrame(frame VideoFrame) error {
 	if vs.frameCount%100 == 0 {
 		elapsed := time.Since(vs.startTime)
 		fps := float64(vs.frameCount) / elapsed.Seconds()
-		utils.Logger.Debugf("Recording progress: %d frames, %.2f FPS, %.2f MB written", 
+		utils.Logger.Debugf("Recording progress: %d frames, %.2f FPS, %.2f MB written",
 			vs.frameCount, fps, float64(vs.totalBytes)/(1024*1024))
 	}
 
@@ -153,30 +153,47 @@ func (vs *VideoSaver) Close() error {
 
 // VideoRecorder combines video stream listening and saving
 type VideoRecorder struct {
-	listener   *VideoStreamListener
-	saver      *VideoSaver
-	frameChan  <-chan VideoFrame
-	stopChan   chan bool
-	isRunning  bool
-	mutex      sync.Mutex
+	listener    *VideoStreamListener
+	saver       *VideoSaver
+	mp4Recorder *MP4VideoRecorder
+	frameChan   <-chan VideoFrame
+	stopChan    chan bool
+	isRunning   bool
+	mutex       sync.Mutex
+	format      VideoFormat
 }
 
 // NewVideoRecorder creates a new video recorder
 func NewVideoRecorder(listenAddr, savePath string) (*VideoRecorder, error) {
+	return NewVideoRecorderWithFormat(listenAddr, savePath, FormatH264)
+}
+
+// NewVideoRecorderWithFormat creates a new video recorder with specified format
+func NewVideoRecorderWithFormat(listenAddr, savePath string, format VideoFormat) (*VideoRecorder, error) {
 	listener, err := NewVideoStreamListener(listenAddr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create video stream listener: %w", err)
 	}
 
-	saver := NewVideoSaver(savePath)
-
-	return &VideoRecorder{
+	recorder := &VideoRecorder{
 		listener:  listener,
-		saver:     saver,
 		frameChan: listener.GetFrameChannel(),
 		stopChan:  make(chan bool),
 		isRunning: false,
-	}, nil
+		format:    format,
+	}
+
+	// Initialize appropriate saver based on format
+	switch format {
+	case FormatH264:
+		recorder.saver = NewVideoSaver(savePath)
+	case FormatMP4:
+		recorder.mp4Recorder = NewMP4VideoRecorder(savePath)
+	default:
+		return nil, fmt.Errorf("unsupported video format: %s", format)
+	}
+
+	return recorder, nil
 }
 
 // StartRecording starts both the video listener and recording
@@ -195,8 +212,18 @@ func (vr *VideoRecorder) StartRecording() error {
 		}
 	}()
 
-	// Start recording
-	if err := vr.saver.StartRecording(); err != nil {
+	// Start recording based on format
+	var err error
+	switch vr.format {
+	case FormatH264:
+		err = vr.saver.StartRecording()
+	case FormatMP4:
+		err = vr.mp4Recorder.StartRecording()
+	default:
+		return fmt.Errorf("unsupported video format: %s", vr.format)
+	}
+
+	if err != nil {
 		return fmt.Errorf("failed to start recording: %w", err)
 	}
 
@@ -204,7 +231,7 @@ func (vr *VideoRecorder) StartRecording() error {
 	go vr.processFrames()
 
 	vr.isRunning = true
-	utils.Logger.Info("Video recorder started")
+	utils.Logger.Infof("Video recorder started (format: %s)", vr.format)
 	return nil
 }
 
@@ -220,9 +247,16 @@ func (vr *VideoRecorder) StopRecording() error {
 	// Signal stop
 	close(vr.stopChan)
 
-	// Stop recording
-	if err := vr.saver.StopRecording(); err != nil {
-		utils.Logger.Errorf("Failed to stop recording: %v", err)
+	// Stop recording based on format
+	switch vr.format {
+	case FormatH264:
+		if err := vr.saver.StopRecording(); err != nil {
+			utils.Logger.Errorf("Failed to stop recording: %v", err)
+		}
+	case FormatMP4:
+		if err := vr.mp4Recorder.StopRecording(); err != nil {
+			utils.Logger.Errorf("Failed to stop recording: %v", err)
+		}
 	}
 
 	// Stop listener
@@ -230,7 +264,7 @@ func (vr *VideoRecorder) StopRecording() error {
 
 	vr.isRunning = false
 	vr.stopChan = make(chan bool) // Recreate stop channel for next use
-	
+
 	utils.Logger.Info("Video recorder stopped")
 	return nil
 }
@@ -245,7 +279,18 @@ func (vr *VideoRecorder) processFrames() {
 				return
 			}
 
-			if err := vr.saver.SaveFrame(frame); err != nil {
+			var err error
+			switch vr.format {
+			case FormatH264:
+				err = vr.saver.SaveFrame(frame)
+			case FormatMP4:
+				err = vr.mp4Recorder.SaveFrame(frame)
+			default:
+				utils.Logger.Errorf("Unsupported video format: %s", vr.format)
+				continue
+			}
+
+			if err != nil {
 				utils.Logger.Errorf("Failed to save frame: %v", err)
 			}
 
@@ -258,8 +303,19 @@ func (vr *VideoRecorder) processFrames() {
 
 // GetStats returns combined statistics from listener and saver
 func (vr *VideoRecorder) GetStats() map[string]interface{} {
-	stats := vr.saver.GetStats()
+	var stats map[string]interface{}
+
+	switch vr.format {
+	case FormatH264:
+		stats = vr.saver.GetStats()
+	case FormatMP4:
+		stats = vr.mp4Recorder.GetStats()
+	default:
+		stats = make(map[string]interface{})
+	}
+
 	stats["is_running"] = vr.isRunning
+	stats["format"] = string(vr.format)
 	return stats
 }
 
@@ -270,5 +326,23 @@ func (vr *VideoRecorder) Close() error {
 			return err
 		}
 	}
+
+	// Close format-specific resources
+	switch vr.format {
+	case FormatH264:
+		if vr.saver != nil {
+			vr.saver.Close()
+		}
+	case FormatMP4:
+		if vr.mp4Recorder != nil {
+			vr.mp4Recorder.Close()
+		}
+	}
+
 	return nil
+}
+
+// NewVideoRecorderMP4 creates a new MP4 video recorder with listener
+func NewVideoRecorderMP4(listenAddr, savePath string) (*VideoRecorder, error) {
+	return NewVideoRecorderWithFormat(listenAddr, savePath, FormatMP4)
 }
