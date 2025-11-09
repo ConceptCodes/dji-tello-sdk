@@ -5,8 +5,8 @@ import (
 )
 
 const (
-	PriorityLow  = 0  // Control commands (takeoff, land, movement, etc.)
-	PriorityHigh = 1  // Read commands (speed?, battery?, etc.)
+	PriorityLow  = 0 // Control commands (takeoff, land, movement, etc.)
+	PriorityHigh = 1 // Read commands (speed?, battery?, etc.)
 )
 
 type QueuedCommand struct {

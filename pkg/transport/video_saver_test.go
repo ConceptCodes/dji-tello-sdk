@@ -137,7 +137,7 @@ func TestVideoRecorderStats(t *testing.T) {
 	defer recorder.Close()
 
 	stats := recorder.GetStats()
-	
+
 	// Check required stats fields
 	expectedFields := []string{"is_running", "is_recording", "frame_count", "total_bytes", "file_path"}
 	for _, field := range expectedFields {

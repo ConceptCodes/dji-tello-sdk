@@ -25,7 +25,7 @@ func TestParseInt(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
 			result, err := ParseInt(test.input)
-			
+
 			if test.hasError {
 				if err == nil {
 					t.Errorf("Expected error for input '%s', got nil", test.input)
@@ -61,7 +61,7 @@ func TestParseFloat(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
 			result, err := ParseFloat(test.input)
-			
+
 			if test.hasError {
 				if err == nil {
 					t.Errorf("Expected error for input '%s', got nil", test.input)
@@ -83,7 +83,7 @@ func TestParseState(t *testing.T) {
 		name     string
 		input    string
 		expected *shared.TelloState
-		hasError  bool
+		hasError bool
 	}{
 		{
 			name:  "Complete valid state",
@@ -109,26 +109,26 @@ func TestParseState(t *testing.T) {
 		{
 			name:     "Empty input",
 			input:    "",
-			expected:  &shared.TelloState{},
-			hasError:  false,
+			expected: &shared.TelloState{},
+			hasError: false,
 		},
 		{
 			name:     "Invalid format - missing colon",
 			input:    "pitch10;roll:20;",
-			expected:  nil,
-			hasError:  true,
+			expected: nil,
+			hasError: true,
 		},
 		{
 			name:     "Invalid format - empty key",
 			input:    ":10;roll:20;",
-			expected:  nil,
-			hasError:  true,
+			expected: nil,
+			hasError: true,
 		},
 		{
 			name:     "Invalid format - empty value",
 			input:    "pitch:;roll:20;",
-			expected:  nil,
-			hasError:  true,
+			expected: nil,
+			hasError: true,
 		},
 		{
 			name:  "Invalid numeric values",
@@ -159,7 +159,7 @@ func TestParseState(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := ParseState(test.input)
-			
+
 			if test.hasError {
 				if err == nil {
 					t.Errorf("Expected error for input '%s', got nil", test.input)
@@ -168,17 +168,17 @@ func TestParseState(t *testing.T) {
 				if err != nil {
 					t.Errorf("Expected no error for input '%s', got %v", test.input, err)
 				}
-				
+
 				if result == nil && test.expected != nil {
 					t.Errorf("Expected state %+v, got nil", test.expected)
 					return
 				}
-				
+
 				if result != nil && test.expected == nil {
 					t.Errorf("Expected nil, got state %+v", result)
 					return
 				}
-				
+
 				if result != nil && test.expected != nil {
 					// Compare individual fields
 					if result.Pitch != test.expected.Pitch {

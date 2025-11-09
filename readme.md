@@ -5,6 +5,7 @@ A comprehensive and easy-to-use Go SDK for the DJI Tello drone, featuring priori
 ## Features
 
 - 🚁 **Complete Drone Control** - Takeoff, landing, movement, flips, and advanced flight patterns
+- 🎮 **Gamepad Support** - Xbox, PlayStation, and generic USB controller support with customizable mappings
 - 📹 **Video Streaming** - Real-time H.264 video stream processing and display
 - 🎥 **Video Recording** - H.264 and MP4 recording with FFmpeg integration
 - 📊 **Telemetry Monitoring** - Real-time battery, altitude, attitude, and sensor data
@@ -287,6 +288,21 @@ telloctl video-gui
 telloctl video-gui -t terminal
 ```
 
+#### Gamepad Commands
+```bash
+# List available gamepads
+telloctl gamepad --list
+
+# Start gamepad control with default configuration
+telloctl gamepad
+
+# Start gamepad control with custom configuration
+telloctl gamepad --config /path/to/config.json
+
+# Start gamepad control with preset (xbox, playstation, default)
+telloctl gamepad --preset xbox
+```
+
 ### Video Frame Structure
 
 Each video frame contains:
@@ -375,6 +391,183 @@ telloctl stream -d 30 -s output.mp4 -f mp4
 # Start video GUI
 telloctl video-gui -t web -p 8080
 ```
+
+## Gamepad Support
+
+The SDK includes comprehensive gamepad support for controlling DJI Tello drones with physical controllers. It supports Xbox, PlayStation, and generic USB controllers with fully customizable button and axis mappings.
+
+### Supported Controllers
+
+- **Xbox Controllers** - Xbox One, Xbox Series X/S, and compatible controllers
+- **PlayStation Controllers** - DualShock 4, DualSense, and compatible controllers  
+- **Generic USB Controllers** - Any standard USB gamepad with SDL2 support
+
+### Quick Start
+
+```bash
+# List available gamepads
+telloctl gamepad --list
+
+# Start gamepad control with default configuration
+telloctl gamepad
+
+# Use Xbox preset configuration
+telloctl gamepad --preset xbox
+```
+
+### Configuration
+
+Gamepad behavior is controlled through JSON configuration files with schema validation:
+
+```json
+{
+  "version": "1.0.0",
+  "controller": {
+    "deadzone": 0.15,
+    "sensitivity": 1.0,
+    "update_rate": 60,
+    "auto_detect": true
+  },
+  "safety": {
+    "rc_limits": {
+      "horizontal": 50,
+      "vertical": 50,
+      "yaw": 50
+    },
+    "emergency_actions": {
+      "connection_timeout": 5000,
+      "low_battery_threshold": 20,
+      "enable_auto_land": true
+    }
+  },
+  "mappings": {
+    "axes": {
+      "left_stick_x": {
+        "axis": "left_stick_x",
+        "invert": false,
+        "deadzone": 0.1,
+        "rc_mapping": "roll"
+      },
+      "left_stick_y": {
+        "axis": "left_stick_y", 
+        "invert": true,
+        "deadzone": 0.1,
+        "rc_mapping": "throttle"
+      }
+    },
+    "buttons": {
+      "button_a": {
+        "button": "button_a",
+        "action": "takeoff"
+      },
+      "button_b": {
+        "button": "button_b",
+        "action": "land"
+      }
+    }
+  }
+}
+```
+
+### Default Control Mappings
+
+#### Xbox Controller
+- **Left Stick**: Throttle (Y) / Yaw (X)
+- **Right Stick**: Pitch (Y) / Roll (X)
+- **A Button**: Takeoff
+- **B Button**: Land
+- **X Button**: Emergency Stop
+- **Y Button**: Flip Forward
+- **Left Bumper**: Flip Left
+- **Right Bumper**: Flip Right
+- **Start Button**: Start Video Streaming
+- **Select Button**: Stop Video Streaming
+
+#### PlayStation Controller
+- **Left Stick**: Throttle (Y) / Yaw (X)
+- **Right Stick**: Pitch (Y) / Roll (X)
+- **Cross Button**: Takeoff
+- **Circle Button**: Land
+- **Square Button**: Emergency Stop
+- **Triangle Button**: Flip Forward
+- **L1 Button**: Flip Left
+- **R1 Button**: Flip Right
+- **Options Button**: Start Video Streaming
+- **Share Button**: Stop Video Streaming
+
+### Programmatic Usage
+
+```go
+package main
+
+import (
+    "log"
+    "github.com/conceptcodes/dji-tello-sdk-go/pkg/gamepad"
+    "github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
+)
+
+func main() {
+    // Initialize drone
+    drone, err := tello.Initialize()
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Load gamepad configuration
+    config, err := gamepad.LoadConfigFromFile("configs/gamepad-default.json")
+    if err != nil {
+        config = gamepad.DefaultConfig()
+    }
+
+    // Create gamepad handler
+    handler, err := gamepad.NewHandler(gamepad.HandlerOptions{
+        Config: config,
+        OnRCValues: func(rcValues gamepad.RCValues) {
+            // Send RC values to drone
+            drone.SetRcControl(rcValues.A, rcValues.B, rcValues.C, rcValues.D)
+        },
+        OnDroneAction: func(action gamepad.DroneAction) {
+            // Handle discrete actions
+            switch action {
+            case gamepad.ActionTakeoff:
+                drone.TakeOff()
+            case gamepad.ActionLand:
+                drone.Land()
+            case gamepad.ActionEmergency:
+                drone.Emergency()
+            }
+        },
+        OnError: func(err error) {
+            log.Printf("Gamepad error: %v", err)
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer handler.Stop()
+
+    // Start gamepad processing
+    if err := handler.Start(); err != nil {
+        log.Fatal(err)
+    }
+
+    // Keep running
+    select {}
+}
+```
+
+### Example Application
+
+```go
+// Run the gamepad example
+go run ./examples/gamepad/main.go
+```
+
+This example provides:
+- Real-time gamepad state display
+- RC value monitoring
+- Button press detection
+- Controller connection status
 
 ## API Reference
 
@@ -562,6 +755,11 @@ go test -cover ./...
 │   ├── tello/             # Core SDK functionality
 │   │   ├── commander.go   # Main drone interface
 │   │   └── priority_command_queue.go  # Command queuing
+│   ├── gamepad/           # Gamepad support
+│   │   ├── handler.go     # Gamepad input processing
+│   │   ├── config.go      # Configuration management
+│   │   ├── types.go       # Type definitions
+│   │   └── defaults.go    # Preset configurations
 │   ├── transport/         # Communication layer
 │   │   ├── video.go       # Video streaming
 │   │   ├── h264_parser.go # H.264 parsing
@@ -589,7 +787,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [x] Priority command queuing
 - [x] MP4 recording with FFmpeg
 - [x] Web-based video GUI
-- [ ] Gamepad support
+- [x] Gamepad support
 - [ ] Basic ML support
 - [ ] Swarm manager
 - [ ] Flight path planning

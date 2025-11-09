@@ -15,20 +15,20 @@ func TestTelloStateJSON(t *testing.T) {
 		Baro: 1013.25, Time: 120,
 		Agx: 0.1, Agy: 0.2, Agz: 0.3,
 	}
-	
+
 	// Marshal to JSON
 	data, err := json.Marshal(state)
 	if err != nil {
 		t.Errorf("Expected no error marshaling state to JSON, got %v", err)
 	}
-	
+
 	// Unmarshal back
 	var unmarshaledState TelloState
 	err = json.Unmarshal(data, &unmarshaledState)
 	if err != nil {
 		t.Errorf("Expected no error unmarshaling JSON to state, got %v", err)
 	}
-	
+
 	// Compare fields
 	if unmarshaledState.Pitch != state.Pitch {
 		t.Errorf("Expected Pitch %d, got %d", state.Pitch, unmarshaledState.Pitch)
@@ -83,7 +83,7 @@ func TestTelloStateJSON(t *testing.T) {
 func TestTelloStateFields(t *testing.T) {
 	// Test field types and default values
 	state := &TelloState{}
-	
+
 	// Test default values (should be zero values)
 	if state.Pitch != 0 {
 		t.Errorf("Expected default Pitch 0, got %d", state.Pitch)
@@ -133,7 +133,7 @@ func TestTelloStateFields(t *testing.T) {
 	if state.Agz != 0.0 {
 		t.Errorf("Expected default Agz 0.0, got %f", state.Agz)
 	}
-	
+
 	// Test field assignments
 	state.Pitch = 10
 	state.Roll = -5
@@ -151,7 +151,7 @@ func TestTelloStateFields(t *testing.T) {
 	state.Agx = 0.1
 	state.Agy = -0.2
 	state.Agz = 9.8
-	
+
 	// Verify assignments
 	if state.Pitch != 10 {
 		t.Errorf("Expected Pitch 10, got %d", state.Pitch)
@@ -213,7 +213,7 @@ func TestTelloStateEdgeValues(t *testing.T) {
 		Baro: -500.0, Time: 9999, // Extended limits
 		Agx: -10.0, Agy: 10.0, Agz: 20.0, // Acceleration limits
 	}
-	
+
 	// Verify all edge values are preserved
 	if state.Pitch != -180 {
 		t.Errorf("Expected Pitch -180, got %d", state.Pitch)

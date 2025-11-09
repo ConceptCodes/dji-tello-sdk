@@ -1,0 +1,67 @@
+{
+  "version": "1.0.0",
+  "controller": {
+    "deadzone": 0.1,
+    "sensitivity": 1.0,
+    "update_rate": 60,
+    "auto_detect": true,
+    "controller_id": null
+  },
+  "safety": {
+    "rc_limits": {
+      "horizontal": 80,
+      "vertical": 60,
+      "yaw": 100
+    },
+    "emergency_actions": {
+      "connection_timeout": 3000,
+      "low_battery_threshold": 20,
+      "enable_auto_land": true
+    }
+  },
+  "mappings": {
+    "axes": {
+      "movement_x": {
+        "axis": "left_stick_x",
+        "invert": false
+      },
+      "movement_y": {
+        "axis": "left_stick_y",
+        "invert": false
+      },
+      "altitude": {
+        "axis": "right_stick_y",
+        "invert": true
+      },
+      "yaw": {
+        "axis": "right_stick_x",
+        "invert": false
+      }
+    },
+    "buttons": {
+      "takeoff_land": {
+        "button": "button_a",
+        "hold_time": 500
+      },
+      "emergency": {
+        "button": "button_b",
+        "hold_time": 1000
+      },
+      "flip_forward": {
+        "button": "button_x"
+      },
+      "flip_backward": {
+        "button": "button_y"
+      },
+      "flip_left": {
+        "button": "left_bumper"
+      },
+      "flip_right": {
+        "button": "right_bumper"
+      },
+      "stream_toggle": {
+        "button": "button_select"
+      }
+    }
+  }
+}

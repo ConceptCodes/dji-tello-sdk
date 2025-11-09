@@ -76,6 +76,7 @@ func main() {
 		commands.StreamOffCmd(drone),
 		commands.StreamCmd(drone),
 		commands.VideoGUICmd(drone),
+		commands.GamepadCmd(drone),
 	)
 
 	if err := rootCmd.Execute(); err != nil {

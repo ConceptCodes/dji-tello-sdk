@@ -6,12 +6,12 @@ import (
 
 // H.264 NAL Unit Types
 const (
-	NALUTypeSlice      = 1
-	NALUTypeIDR        = 5
-	NALUTypeSPS        = 7
-	NALUTypePPS        = 8
-	NALUTypeAUD        = 9
-	NALUTypeSEI        = 6
+	NALUTypeSlice = 1
+	NALUTypeIDR   = 5
+	NALUTypeSPS   = 7
+	NALUTypePPS   = 8
+	NALUTypeAUD   = 9
+	NALUTypeSEI   = 6
 )
 
 // H264Parser provides basic H.264 stream parsing capabilities
@@ -171,11 +171,11 @@ func (p *H264Parser) HasKeyFrame(nalUnits []NALUnit) bool {
 // GetFrameInfo returns metadata about the parsed frame
 func (p *H264Parser) GetFrameInfo(nalUnits []NALUnit) map[string]interface{} {
 	info := make(map[string]interface{})
-	
+
 	var nalTypes []string
 	var keyFrames []int
 	var totalSize int
-	
+
 	for i, nalUnit := range nalUnits {
 		nalTypes = append(nalTypes, p.GetNALUTypeName(nalUnit.Type))
 		if nalUnit.IsKeyFrame {
@@ -183,7 +183,7 @@ func (p *H264Parser) GetFrameInfo(nalUnits []NALUnit) map[string]interface{} {
 		}
 		totalSize += nalUnit.Size
 	}
-	
+
 	info["nal_unit_count"] = len(nalUnits)
 	info["nal_types"] = nalTypes
 	info["total_size"] = totalSize
@@ -191,6 +191,6 @@ func (p *H264Parser) GetFrameInfo(nalUnits []NALUnit) map[string]interface{} {
 	info["key_frame_indices"] = keyFrames
 	info["sps_present"] = p.ExtractSPS(nalUnits) != nil
 	info["pps_present"] = p.ExtractPPS(nalUnits) != nil
-	
+
 	return info
 }

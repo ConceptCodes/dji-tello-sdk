@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/conceptcodes/dji-tello-sdk/gamepad-config",
+  "title": "DJI Tello Gamepad Configuration",
+  "description": "Configuration schema for gamepad control of DJI Tello drones",
+  "type": "object",
+  "required": ["version", "controller", "safety", "mappings"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Configuration version following semantic versioning"
+    },
+    "controller": {
+      "type": "object",
+      "required": ["deadzone", "sensitivity", "update_rate"],
+      "properties": {
+        "deadzone": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5,
+          "default": 0.1,
+          "description": "Deadzone for analog sticks (0.0-0.5)"
+        },
+        "sensitivity": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 3.0,
+          "default": 1.0,
+          "description": "Sensitivity multiplier for analog inputs"
+        },
+        "update_rate": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 120,
+          "default": 60,
+          "description": "Input polling rate in Hz"
+        },
+        "auto_detect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically detect connected controllers"
+        },
+        "controller_id": {
+          "type": ["string", "null"],
+          "description": "Specific controller ID to use (null for auto-detect)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "safety": {
+      "type": "object",
+      "required": ["rc_limits", "emergency_actions"],
+      "properties": {
+        "rc_limits": {
+          "type": "object",
+          "required": ["horizontal", "vertical", "yaw"],
+          "properties": {
+            "horizontal": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 100,
+              "default": 80,
+              "description": "Maximum horizontal RC value (-100 to 100)"
+            },
+            "vertical": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 100,
+              "default": 60,
+              "description": "Maximum vertical RC value (-100 to 100)"
+            },
+            "yaw": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 100,
+              "default": 100,
+              "description": "Maximum yaw RC value (-100 to 100)"
+            }
+          },
+          "additionalProperties": false
+        },
+        "emergency_actions": {
+          "type": "object",
+          "properties": {
+            "connection_timeout": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 10000,
+              "default": 3000,
+              "description": "Auto-land timeout in milliseconds"
+            },
+            "low_battery_threshold": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 30,
+              "default": 20,
+              "description": "Low battery threshold percentage"
+            },
+            "enable_auto_land": {
+              "type": "boolean",
+              "default": true,
+              "description": "Enable automatic landing on connection loss"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "mappings": {
+      "type": "object",
+      "required": ["axes", "buttons"],
+      "properties": {
+        "axes": {
+          "type": "object",
+          "required": ["movement_x", "movement_y", "altitude", "yaw"],
+          "properties": {
+            "movement_x": {
+              "$ref": "#/$defs/axisMapping",
+              "default": {
+                "axis": "left_stick_x",
+                "invert": false
+              }
+            },
+            "movement_y": {
+              "$ref": "#/$defs/axisMapping",
+              "default": {
+                "axis": "left_stick_y",
+                "invert": false
+              }
+            },
+            "altitude": {
+              "$ref": "#/$defs/axisMapping",
+              "default": {
+                "axis": "right_stick_y",
+                "invert": true
+              }
+            },
+            "yaw": {
+              "$ref": "#/$defs/axisMapping",
+              "default": {
+                "axis": "right_stick_x",
+                "invert": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "buttons": {
+          "type": "object",
+          "required": ["takeoff_land", "emergency", "flip_forward", "flip_backward"],
+          "properties": {
+            "takeoff_land": {
+              "$ref": "#/$defs/buttonMapping",
+              "default": {
+                "button": "button_a",
+                "hold_time": 500
+              }
+            },
+            "emergency": {
+              "$ref": "#/$defs/buttonMapping",
+              "default": {
+                "button": "button_b",
+                "hold_time": 1000
+              }
+            },
+            "flip_forward": {
+              "$ref": "#/$defs/buttonMapping",
+              "default": {
+                "button": "button_x"
+              }
+            },
+            "flip_backward": {
+              "$ref": "#/$defs/buttonMapping",
+              "default": {
+                "button": "button_y"
+              }
+            },
+            "flip_left": {
+              "$ref": "#/$defs/buttonMapping",
+              "default": {
+                "button": "left_bumper"
+              }
+            },
+            "flip_right": {
+              "$ref": "#/$defs/buttonMapping",
+              "default": {
+                "button": "right_bumper"
+              }
+            },
+            "stream_toggle": {
+              "$ref": "#/$defs/buttonMapping",
+              "default": {
+                "button": "button_select"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "axisMapping": {
+      "type": "object",
+      "required": ["axis", "invert"],
+      "properties": {
+        "axis": {
+          "type": "string",
+          "enum": [
+            "left_stick_x", "left_stick_y", "right_stick_x", "right_stick_y",
+            "left_trigger", "right_trigger", "dpad_x", "dpad_y"
+          ]
+        },
+        "invert": {
+          "type": "boolean",
+          "default": false
+        },
+        "deadzone": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5,
+          "default": null
+        },
+        "sensitivity": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 3.0,
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "buttonMapping": {
+      "type": "object",
+      "required": ["button"],
+      "properties": {
+        "button": {
+          "type": "string",
+          "enum": [
+            "button_a", "button_b", "button_x", "button_y",
+            "left_bumper", "right_bumper", "left_trigger", "right_trigger",
+            "button_select", "button_start", "left_stick_button", "right_stick_button",
+            "dpad_up", "dpad_down", "dpad_left", "dpad_right"
+          ]
+        },
+        "hold_time": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3000,
+          "default": 0,
+          "description": "Hold time in milliseconds (0 for instant)"
+        },
+        "double_tap": {
+          "type": "boolean",
+          "default": false,
+          "description": "Require double tap to activate"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

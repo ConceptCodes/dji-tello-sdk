@@ -10,22 +10,22 @@ func TestH264Parser_ParseFrame(t *testing.T) {
 
 	// Test with valid H.264 data with start codes
 	testData := []byte{0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1E, 0x8D, 0x40, 0x50, 0x17, 0xFC, 0xB0, 0x0F, 0x08, 0x84, 0x6A}
-	
+
 	nalUnits, err := parser.ParseFrame(testData)
 	if err != nil {
 		t.Errorf("Expected no error parsing valid H.264 data, got %v", err)
 	}
-	
+
 	if len(nalUnits) == 0 {
 		t.Error("Expected at least one NAL unit, got none")
 	}
-	
+
 	// Check first NAL unit
 	firstNAL := nalUnits[0]
 	if firstNAL.Type != NALUTypeSPS {
 		t.Errorf("Expected SPS NAL unit type (7), got %d", firstNAL.Type)
 	}
-	
+
 	if len(firstNAL.Data) == 0 {
 		t.Error("Expected NAL unit data, got empty slice")
 	}
@@ -40,16 +40,16 @@ func TestH264Parser_ParseFrameMultipleNALUnits(t *testing.T) {
 		0x00, 0x00, 0x01, 0x68, 0xCE, 0x3C, 0x80, // PPS
 		0x00, 0x00, 0x01, 0x41, 0xEA, 0x20, 0x80, // Slice
 	}
-	
+
 	nalUnits, err := parser.ParseFrame(testData)
 	if err != nil {
 		t.Errorf("Expected no error parsing multiple NAL units, got %v", err)
 	}
-	
+
 	if len(nalUnits) != 3 {
 		t.Errorf("Expected 3 NAL units, got %d", len(nalUnits))
 	}
-	
+
 	// Check NAL unit types
 	expectedTypes := []byte{NALUTypeSPS, NALUTypePPS, NALUTypeSlice}
 	for i, expectedType := range expectedTypes {
@@ -126,7 +126,7 @@ func TestH264Parser_HasKeyFrame(t *testing.T) {
 		{Type: NALUTypeIDR, IsKeyFrame: true},
 		{Type: NALUTypeSlice, IsKeyFrame: false},
 	}
-	
+
 	if !parser.HasKeyFrame(nalUnitsWithKeyFrame) {
 		t.Error("Expected HasKeyFrame to return true with IDR frame")
 	}
@@ -136,7 +136,7 @@ func TestH264Parser_HasKeyFrame(t *testing.T) {
 		{Type: NALUTypeSPS, IsKeyFrame: false},
 		{Type: NALUTypeSlice, IsKeyFrame: false},
 	}
-	
+
 	if parser.HasKeyFrame(nalUnitsWithoutKeyFrame) {
 		t.Error("Expected HasKeyFrame to return false without IDR frame")
 	}
@@ -177,11 +177,11 @@ func TestH264Parser_GetFrameInfo(t *testing.T) {
 
 func TestVideoFrame(t *testing.T) {
 	frame := VideoFrame{
-		Data:      []byte{0x00, 0x01, 0x02},
-		Timestamp: time.Now(),
-		Size:      3,
-		SeqNum:    1,
-		NALUnits:  []NALUnit{{Type: NALUTypeSPS}},
+		Data:       []byte{0x00, 0x01, 0x02},
+		Timestamp:  time.Now(),
+		Size:       3,
+		SeqNum:     1,
+		NALUnits:   []NALUnit{{Type: NALUTypeSPS}},
 		IsKeyFrame: false,
 	}
 

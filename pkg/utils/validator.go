@@ -16,7 +16,7 @@ func ValidateArcRadius(x1, x2, y1, y2, z1, z2 int, min float64, max float64) err
 	dx := float64(x2 - x1)
 	dy := float64(y2 - y1)
 	dz := float64(z2 - z1)
-	
+
 	// Calculate the Euclidean distance (this represents the arc radius)
 	distance := math.Sqrt(dx*dx + dy*dy + dz*dz)
 

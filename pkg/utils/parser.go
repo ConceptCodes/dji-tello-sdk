@@ -29,7 +29,7 @@ func ParseState(data string) (*shared.TelloState, error) {
 		if part == "" {
 			continue // Skip empty parts
 		}
-		
+
 		telemetryData := strings.Split(part, ":")
 		if len(telemetryData) != 2 {
 			return nil, fmt.Errorf("invalid telemetry data: %s", part)

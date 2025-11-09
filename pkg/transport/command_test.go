@@ -64,11 +64,11 @@ func TestNewCommandConnection(t *testing.T) {
 	if err != nil {
 		t.Errorf("Expected no error creating command connection, got %v", err)
 	}
-	
+
 	if conn == nil {
 		t.Error("Expected connection to be created, got nil")
 	}
-	
+
 	// Clean up
 	conn.Close()
 }
@@ -77,18 +77,18 @@ func TestCommandConnectionSendCommand(t *testing.T) {
 	// Test with mock client using dependency injection
 	mockClient := NewMockUDPClient()
 	mockClient.SetReceiveData("ok", nil)
-	
+
 	conn := NewCommandConnectionWithClient(mockClient)
-	
+
 	response, err := conn.SendCommand("command")
 	if err != nil {
 		t.Errorf("Expected no error sending command, got %v", err)
 	}
-	
+
 	if response != "ok" {
 		t.Errorf("Expected response 'ok', got '%s'", response)
 	}
-	
+
 	// Verify the command was sent correctly
 	sentData := mockClient.GetSentData()
 	expectedCommand := "command\r\n"
@@ -100,12 +100,12 @@ func TestCommandConnectionSendCommand(t *testing.T) {
 func TestCommandConnectionSendCommandNilClient(t *testing.T) {
 	// Test with nil client using dependency injection
 	conn := NewCommandConnectionWithClient(nil)
-	
+
 	_, err := conn.SendCommand("command")
 	if err == nil {
 		t.Error("Expected error for nil client, got nil")
 	}
-	
+
 	expectedError := "UDP client is not initialized"
 	if err.Error() != expectedError {
 		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
@@ -115,9 +115,9 @@ func TestCommandConnectionSendCommandNilClient(t *testing.T) {
 func TestCommandConnectionClose(t *testing.T) {
 	// Test with mock client using dependency injection
 	mockClient := NewMockUDPClient()
-	
+
 	conn := NewCommandConnectionWithClient(mockClient)
-	
+
 	// Test closing
 	err := conn.Close()
 	if err != nil {
@@ -129,14 +129,14 @@ func TestCommandConnectionSendError(t *testing.T) {
 	// Test send error handling
 	mockClient := NewMockUDPClient()
 	mockClient.SetSendError(fmt.Errorf("send failed"))
-	
+
 	conn := NewCommandConnectionWithClient(mockClient)
-	
+
 	_, err := conn.SendCommand("command")
 	if err == nil {
 		t.Error("Expected error for send failure, got nil")
 	}
-	
+
 	expectedError := "failed to send command 'command': send failed"
 	if err.Error() != expectedError {
 		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
@@ -147,14 +147,14 @@ func TestCommandConnectionReceiveError(t *testing.T) {
 	// Test receive error handling
 	mockClient := NewMockUDPClient()
 	mockClient.SetReceiveData("", fmt.Errorf("receive timeout"))
-	
+
 	conn := NewCommandConnectionWithClient(mockClient)
-	
+
 	_, err := conn.SendCommand("command")
 	if err == nil {
 		t.Error("Expected error for receive failure, got nil")
 	}
-	
+
 	expectedError := "failed to receive response for command 'command': receive timeout"
 	if err.Error() != expectedError {
 		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
@@ -165,14 +165,14 @@ func TestCommandConnectionCloseError(t *testing.T) {
 	// Test close error handling
 	mockClient := NewMockUDPClient()
 	mockClient.SetCloseError(fmt.Errorf("close failed"))
-	
+
 	conn := NewCommandConnectionWithClient(mockClient)
-	
+
 	err := conn.Close()
 	if err == nil {
 		t.Error("Expected error for close failure, got nil")
 	}
-	
+
 	expectedError := "close failed"
 	if err.Error() != expectedError {
 		t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())

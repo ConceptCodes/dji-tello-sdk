@@ -439,28 +439,28 @@ func (t *telloCommander) GetAttitude() (int, int, int, error) {
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	
+
 	// Response format: "pitch roll yaw"
 	parts := strings.Fields(response)
 	if len(parts) != 3 {
 		return 0, 0, 0, fmt.Errorf("unexpected attitude response format: %s", response)
 	}
-	
+
 	pitch, err := utils.ParseInt(parts[0])
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to parse pitch: %w", err)
 	}
-	
+
 	roll, err := utils.ParseInt(parts[1])
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to parse roll: %w", err)
 	}
-	
+
 	yaw, err := utils.ParseInt(parts[2])
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to parse yaw: %w", err)
 	}
-	
+
 	return pitch, roll, yaw, nil
 }
 
@@ -482,28 +482,28 @@ func (t *telloCommander) GetAcceleration() (int, int, int, error) {
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	
+
 	// Response format: "x y z" (in 0.001g units)
 	parts := strings.Fields(response)
 	if len(parts) != 3 {
 		return 0, 0, 0, fmt.Errorf("unexpected acceleration response format: %s", response)
 	}
-	
+
 	agx, err := utils.ParseInt(parts[0])
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to parse acceleration x: %w", err)
 	}
-	
+
 	agy, err := utils.ParseInt(parts[1])
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to parse acceleration y: %w", err)
 	}
-	
+
 	agz, err := utils.ParseInt(parts[2])
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to parse acceleration z: %w", err)
 	}
-	
+
 	return agx, agy, agz, nil
 }
 
@@ -518,7 +518,7 @@ func (t *telloCommander) GetTof() (int, error) {
 // SetVideoFrameCallback sets a callback function to be called when video frames are received
 func (t *telloCommander) SetVideoFrameCallback(callback VideoFrameCallback) {
 	t.videoFrameCallback = callback
-	
+
 	// Start a goroutine to listen for video frames and call the callback
 	if t.videoStreamListener != nil {
 		go func() {

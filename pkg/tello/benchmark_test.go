@@ -14,7 +14,7 @@ func BenchmarkNewPriorityCommandQueue(b *testing.B) {
 func BenchmarkPriorityCommandQueueEnqueueRead(b *testing.B) {
 	queue := NewPriorityCommandQueue()
 	commands := []string{"command", "speed?", "battery?", "time?", "height?"}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		cmd := commands[i%len(commands)]
@@ -25,7 +25,7 @@ func BenchmarkPriorityCommandQueueEnqueueRead(b *testing.B) {
 func BenchmarkPriorityCommandQueueEnqueueControl(b *testing.B) {
 	queue := NewPriorityCommandQueue()
 	commands := []string{"takeoff", "land", "up 50", "down 50", "left 30"}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		cmd := commands[i%len(commands)]
@@ -35,7 +35,7 @@ func BenchmarkPriorityCommandQueueEnqueueControl(b *testing.B) {
 
 func BenchmarkPriorityCommandQueueDequeue(b *testing.B) {
 	queue := NewPriorityCommandQueue()
-	
+
 	// Pre-populate queue
 	for i := 0; i < 1000; i++ {
 		if i%2 == 0 {
@@ -44,7 +44,7 @@ func BenchmarkPriorityCommandQueueDequeue(b *testing.B) {
 			queue.EnqueueControl("up 10")
 		}
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		queue.Dequeue()
@@ -53,7 +53,7 @@ func BenchmarkPriorityCommandQueueDequeue(b *testing.B) {
 
 func BenchmarkPriorityCommandQueuePeek(b *testing.B) {
 	queue := NewPriorityCommandQueue()
-	
+
 	// Pre-populate queue
 	for i := 0; i < 100; i++ {
 		if i%2 == 0 {
@@ -62,7 +62,7 @@ func BenchmarkPriorityCommandQueuePeek(b *testing.B) {
 			queue.EnqueueControl("up 10")
 		}
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		queue.Peek()

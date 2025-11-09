@@ -10,11 +10,11 @@ import (
 )
 
 type VideoFrame struct {
-	Data      []byte
-	Timestamp time.Time
-	Size      int
-	SeqNum    int
-	NALUnits  []NALUnit
+	Data       []byte
+	Timestamp  time.Time
+	Size       int
+	SeqNum     int
+	NALUnits   []NALUnit
 	IsKeyFrame bool
 }
 
@@ -58,7 +58,7 @@ func (vsl *VideoStreamListener) Stop() {
 	} else {
 		utils.Logger.Warnf("Attempted to stop a nil video stream listener server")
 	}
-	
+
 	// Close frame channel
 	if vsl.FrameChan != nil {
 		close(vsl.FrameChan)
@@ -92,7 +92,7 @@ func (vsl *VideoStreamListener) onVideoStreamData(data []byte, addr *net.UDPAddr
 		NALUnits:   nalUnits,
 		IsKeyFrame: parser.HasKeyFrame(nalUnits),
 	}
-	
+
 	// Copy data to avoid race conditions
 	copy(frame.Data, data)
 	vsl.seqNum++
@@ -100,7 +100,7 @@ func (vsl *VideoStreamListener) onVideoStreamData(data []byte, addr *net.UDPAddr
 	// Send frame to channel (non-blocking to prevent UDP listener blocking)
 	select {
 	case vsl.FrameChan <- frame:
-		utils.Logger.Debugf("Frame %d sent to channel (%d bytes, %d NAL units, keyframe: %v)", 
+		utils.Logger.Debugf("Frame %d sent to channel (%d bytes, %d NAL units, keyframe: %v)",
 			frame.SeqNum, frame.Size, len(frame.NALUnits), frame.IsKeyFrame)
 	default:
 		utils.Logger.Warnf("Frame channel full, dropping frame %d", frame.SeqNum)
