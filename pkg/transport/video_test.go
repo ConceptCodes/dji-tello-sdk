@@ -109,20 +109,27 @@ func TestOnVideoStreamData(t *testing.T) {
 	testAddr := &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 11111}
 	testData := []byte{0x00, 0x01, 0x02, 0x03} // Mock H.264 data
 	
+	// Create a video stream listener to test the method
+	listener, err := NewVideoStreamListener("127.0.0.1:11114")
+	if err != nil {
+		t.Fatalf("Failed to create video stream listener: %v", err)
+	}
+	defer listener.Stop()
+	
 	// This function is called internally, we just need to ensure it doesn't panic
 	// In a real scenario, this would be called by UDP server
-	onVideoStreamData(testData, testAddr)
+	listener.onVideoStreamData(testData, testAddr)
 	
 	// Test with empty data
 	emptyData := []byte{}
-	onVideoStreamData(emptyData, testAddr)
+	listener.onVideoStreamData(emptyData, testAddr)
 	
 	// Test with larger data (simulating a video frame)
 	largeData := make([]byte, 1024)
 	for i := range largeData {
 		largeData[i] = byte(i % 256)
 	}
-	onVideoStreamData(largeData, testAddr)
+	listener.onVideoStreamData(largeData, testAddr)
 }
 
 func TestOnVideoStreamError(t *testing.T) {

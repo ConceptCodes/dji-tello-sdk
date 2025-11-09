@@ -22,6 +22,7 @@ type telloCommander struct {
 	commandQueue        *PriorityCommandQueue
 	stateListener       *transport.StateListener
 	videoStreamListener *transport.VideoStreamListener
+	videoFrameCallback  VideoFrameCallback
 }
 
 // CommandConnection interface for command sending
@@ -29,6 +30,9 @@ type CommandConnection interface {
 	SendCommand(command string) (string, error)
 	Close() error
 }
+
+// VideoFrameCallback is called when a new video frame is received
+type VideoFrameCallback func(frame transport.VideoFrame)
 
 type TelloCommander interface {
 	// Control Commands
@@ -65,6 +69,10 @@ type TelloCommander interface {
 	GetBarometer() (int, error)              // Get the current barometer of the drone (m)
 	GetAcceleration() (int, int, int, error) // Get the current acceleration of the drone (x, y, z)
 	GetTof() (int, error)                    // Get the distance value from time of flight of the drone (cm)
+
+	// Video Commands
+	SetVideoFrameCallback(callback VideoFrameCallback) // Set callback for video frames
+	GetVideoFrameChannel() <-chan transport.VideoFrame // Get read-only channel for video frames
 }
 
 func NewTelloCommander(
@@ -505,6 +513,31 @@ func (t *telloCommander) GetTof() (int, error) {
 		return 0, err
 	}
 	return utils.ParseInt(response)
+}
+
+// SetVideoFrameCallback sets a callback function to be called when video frames are received
+func (t *telloCommander) SetVideoFrameCallback(callback VideoFrameCallback) {
+	t.videoFrameCallback = callback
+	
+	// Start a goroutine to listen for video frames and call the callback
+	if t.videoStreamListener != nil {
+		go func() {
+			frameChan := t.videoStreamListener.GetFrameChannel()
+			for frame := range frameChan {
+				if t.videoFrameCallback != nil {
+					t.videoFrameCallback(frame)
+				}
+			}
+		}()
+	}
+}
+
+// GetVideoFrameChannel returns a read-only channel for receiving video frames
+func (t *telloCommander) GetVideoFrameChannel() <-chan transport.VideoFrame {
+	if t.videoStreamListener != nil {
+		return t.videoStreamListener.GetFrameChannel()
+	}
+	return nil
 }
 
 // Initialize creates and configures a new TelloCommander with all necessary components

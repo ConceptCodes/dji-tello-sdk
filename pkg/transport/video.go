@@ -3,28 +3,44 @@ package transport
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
+type VideoFrame struct {
+	Data      []byte
+	Timestamp time.Time
+	Size      int
+	SeqNum    int
+	NALUnits  []NALUnit
+	IsKeyFrame bool
+}
+
 type VideoStreamListener struct {
-	server *udp.UDPServer
+	server    *udp.UDPServer
+	FrameChan chan VideoFrame
+	seqNum    int
 }
 
 func NewVideoStreamListener(listenAddr string) (*VideoStreamListener, error) {
+	vsl := &VideoStreamListener{
+		FrameChan: make(chan VideoFrame, 100), // Buffer for 100 frames
+		seqNum:    0,
+	}
+
 	server, err := udp.NewUDPServer(
 		listenAddr,
-		udp.WithOnData(onVideoStreamData),
+		udp.WithOnData(vsl.onVideoStreamData),
 		udp.WithOnError(onVideoStreamError),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create UDP server for video stream listener on %s: %w", listenAddr, err)
 	}
 
-	return &VideoStreamListener{
-		server: server,
-	}, nil
+	vsl.server = server
+	return vsl, nil
 }
 
 func (vsl *VideoStreamListener) Start() error {
@@ -42,13 +58,53 @@ func (vsl *VideoStreamListener) Stop() {
 	} else {
 		utils.Logger.Warnf("Attempted to stop a nil video stream listener server")
 	}
+	
+	// Close frame channel
+	if vsl.FrameChan != nil {
+		close(vsl.FrameChan)
+		vsl.FrameChan = nil
+	}
 }
 
-func onVideoStreamData(data []byte, addr *net.UDPAddr) {
-	utils.Logger.Debugf("Received %d bytes of video data from %s. (H.264 frame data - not parsed)", len(data), addr.String())
+// GetFrameChannel returns a read-only channel for receiving video frames
+func (vsl *VideoStreamListener) GetFrameChannel() <-chan VideoFrame {
+	return vsl.FrameChan
+}
 
-	// TODO: Implement H.264 frame processing (e.g., send to a decoder or save to file).
-	// Example: videoFrameChannel <- dataCopy (if you have a channel for frames)
+func (vsl *VideoStreamListener) onVideoStreamData(data []byte, addr *net.UDPAddr) {
+	utils.Logger.Debugf("Received %d bytes of video data from %s", len(data), addr.String())
+
+	// Parse H.264 data
+	parser := NewH264Parser()
+	nalUnits, err := parser.ParseFrame(data)
+	if err != nil {
+		utils.Logger.Errorf("Failed to parse H.264 frame: %v", err)
+		// Still send the frame even if parsing fails
+		nalUnits = []NALUnit{}
+	}
+
+	// Create video frame with metadata
+	frame := VideoFrame{
+		Data:       make([]byte, len(data)),
+		Timestamp:  time.Now(),
+		Size:       len(data),
+		SeqNum:     vsl.seqNum,
+		NALUnits:   nalUnits,
+		IsKeyFrame: parser.HasKeyFrame(nalUnits),
+	}
+	
+	// Copy data to avoid race conditions
+	copy(frame.Data, data)
+	vsl.seqNum++
+
+	// Send frame to channel (non-blocking to prevent UDP listener blocking)
+	select {
+	case vsl.FrameChan <- frame:
+		utils.Logger.Debugf("Frame %d sent to channel (%d bytes, %d NAL units, keyframe: %v)", 
+			frame.SeqNum, frame.Size, len(frame.NALUnits), frame.IsKeyFrame)
+	default:
+		utils.Logger.Warnf("Frame channel full, dropping frame %d", frame.SeqNum)
+	}
 }
 
 func onVideoStreamError(err error) {

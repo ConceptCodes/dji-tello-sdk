@@ -72,6 +72,9 @@ func main() {
 		commands.RightCmd(drone),
 		commands.ClockwiseCmd(drone),
 		commands.CounterClockwiseCmd(drone),
+		commands.StreamOnCmd(drone),
+		commands.StreamOffCmd(drone),
+		commands.StreamCmd(drone),
 	)
 
 	if err := rootCmd.Execute(); err != nil {
