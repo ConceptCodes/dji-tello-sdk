@@ -63,6 +63,8 @@ func (r *Renderer) Render(img draw.Image, results map[string]ml.MLResult, metric
 		switch res := result.(type) {
 		case ml.DetectionResult:
 			r.renderDetections(resultImg, res)
+		case ml.TrackingResult:
+			r.renderTracking(resultImg, res)
 		case ml.SLAMResult:
 			r.renderSLAMResult(resultImg, res)
 		case ml.GestureResult:
@@ -95,6 +97,49 @@ func (r *Renderer) renderDetections(img draw.Image, result ml.DetectionResult) {
 
 		// Draw class name
 		r.drawClassName(img, detection.Box, detection.ClassName, col)
+	}
+}
+
+// renderTracking renders tracking results
+func (r *Renderer) renderTracking(img draw.Image, result ml.TrackingResult) {
+	if !r.config.ShowTracking {
+		return
+	}
+
+	for _, track := range result.Tracks {
+		// Skip deleted tracks
+		if track.State == ml.TrackStateDeleted {
+			continue
+		}
+
+		// Get color for this track (use different colors for different track IDs)
+		col := r.getColorForTrack(track.ID)
+
+		// Draw track bounding box with different styles based on state
+		switch track.State {
+		case ml.TrackStateTentative:
+			r.drawDashedBoundingBox(img, track.Box, col)
+		case ml.TrackStateConfirmed:
+			r.drawBoundingBox(img, track.Box, col)
+		}
+
+		// Draw track ID and class name
+		r.drawTrackInfo(img, track, col)
+
+		// Draw prediction if available
+		if !track.Prediction.Empty() {
+			r.drawPrediction(img, track.Prediction, col)
+		}
+
+		// Draw velocity vector if significant
+		if track.Velocity.X != 0 || track.Velocity.Y != 0 {
+			r.drawVelocityVector(img, track.Box, track.Velocity, col)
+		}
+
+		// Draw track trail (simplified - just show age)
+		if track.Age > 1 {
+			r.drawTrackAge(img, track.Box, track.Age, col)
+		}
 	}
 }
 
@@ -358,4 +403,179 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+// getColorForTrack returns color for a given track ID
+func (r *Renderer) getColorForTrack(trackID int) color.RGBA {
+	// Generate consistent color based on track ID
+	hue := math.Mod(float64(trackID*137), 360) // Golden angle approximation
+	return r.hsvToRGB(hue, 0.8, 1.0)
+}
+
+// drawDashedBoundingBox draws a dashed bounding box for tentative tracks
+func (r *Renderer) drawDashedBoundingBox(img draw.Image, box image.Rectangle, col color.RGBA) {
+	dashLength := 5
+	gapLength := 3
+
+	// Draw dashed top edge
+	r.drawDashedLine(img, box.Min.X, box.Min.Y, box.Max.X, box.Min.Y, dashLength, gapLength, col)
+	// Draw dashed right edge
+	r.drawDashedLine(img, box.Max.X, box.Min.Y, box.Max.X, box.Max.Y, dashLength, gapLength, col)
+	// Draw dashed bottom edge
+	r.drawDashedLine(img, box.Max.X, box.Max.Y, box.Min.X, box.Max.Y, dashLength, gapLength, col)
+	// Draw dashed left edge
+	r.drawDashedLine(img, box.Min.X, box.Max.Y, box.Min.X, box.Min.Y, dashLength, gapLength, col)
+}
+
+// drawDashedLine draws a dashed line
+func (r *Renderer) drawDashedLine(img draw.Image, x0, y0, x1, y1, dashLength, gapLength int, col color.RGBA) {
+	dx := abs(x1 - x0)
+	dy := abs(y1 - y0)
+	sx, sy := 1, 1
+	if x0 > x1 {
+		sx = -1
+	}
+	if y0 > y1 {
+		sy = -1
+	}
+	err := dx - dy
+
+	totalLength := dashLength + gapLength
+	currentLength := 0
+	isDash := true
+
+	for {
+		if x0 >= 0 && x0 < img.Bounds().Dx() && y0 >= 0 && y0 < img.Bounds().Dy() {
+			if isDash {
+				img.Set(x0, y0, col)
+			}
+		}
+
+		currentLength++
+		if currentLength >= totalLength {
+			currentLength = 0
+			isDash = !isDash
+		}
+
+		if x0 == x1 && y0 == y1 {
+			break
+		}
+
+		e2 := 2 * err
+		if e2 > -dy {
+			err -= dy
+			x0 += sx
+		}
+		if e2 < dx {
+			err += dx
+			y0 += sy
+		}
+	}
+}
+
+// drawTrackInfo draws track ID and class information
+func (r *Renderer) drawTrackInfo(img draw.Image, track ml.Track, col color.RGBA) {
+	text := fmt.Sprintf("ID:%d %s", track.ID, track.ClassName)
+	textX := track.Box.Min.X
+	textY := track.Box.Min.Y - 5
+
+	// Draw background for better readability
+	r.drawTextBackground(img, text, textX, textY, col)
+	r.drawText(img, text, textX, textY, col)
+}
+
+// drawPrediction draws predicted bounding box
+func (r *Renderer) drawPrediction(img draw.Image, prediction image.Rectangle, col color.RGBA) {
+	// Use semi-transparent color for prediction
+	predCol := color.RGBA{col.R, col.G, col.B, 128}
+	r.drawDashedBoundingBox(img, prediction, predCol)
+}
+
+// drawVelocityVector draws velocity vector
+func (r *Renderer) drawVelocityVector(img draw.Image, box image.Rectangle, velocity ml.Point3D, col color.RGBA) {
+	// Calculate center of bounding box
+	centerX := (box.Min.X + box.Max.X) / 2
+	centerY := (box.Min.Y + box.Max.Y) / 2
+
+	// Scale velocity for visualization
+	scale := 10.0
+	endX := centerX + int(float64(velocity.X)*scale)
+	endY := centerY + int(float64(velocity.Y)*scale)
+
+	// Draw velocity vector
+	r.drawArrow(img, centerX, centerY, endX, endY, col)
+}
+
+// drawArrow draws an arrow from (x0,y0) to (x1,y1)
+func (r *Renderer) drawArrow(img draw.Image, x0, y0, x1, y1 int, col color.RGBA) {
+	// Draw main line
+	r.drawLine(img, x0, y0, x1, y1, col)
+
+	// Draw arrowhead
+	angle := math.Atan2(float64(y1-y0), float64(x1-x0))
+	arrowLength := 8
+	arrowAngle := math.Pi / 6 // 30 degrees
+
+	// Calculate arrowhead points
+	x2 := x1 - int(float64(arrowLength)*math.Cos(angle-arrowAngle))
+	y2 := y1 - int(float64(arrowLength)*math.Sin(angle-arrowAngle))
+	x3 := x1 - int(float64(arrowLength)*math.Cos(angle+arrowAngle))
+	y3 := y1 - int(float64(arrowLength)*math.Sin(angle+arrowAngle))
+
+	// Draw arrowhead lines
+	r.drawLine(img, x1, y1, x2, y2, col)
+	r.drawLine(img, x1, y1, x3, y3, col)
+}
+
+// drawTrackAge draws track age information
+func (r *Renderer) drawTrackAge(img draw.Image, box image.Rectangle, age int, col color.RGBA) {
+	ageText := fmt.Sprintf("age:%d", age)
+	textX := box.Max.X - 40
+	textY := box.Max.Y + 15
+	r.drawText(img, ageText, textX, textY, col)
+}
+
+// drawTextBackground draws background for text
+func (r *Renderer) drawTextBackground(img draw.Image, text string, x, y int, col color.RGBA) {
+	textWidth := len(text) * 8
+	textHeight := 16
+
+	for py := y - textHeight; py < y && py < img.Bounds().Dy(); py++ {
+		for px := x; px < x+textWidth && px < img.Bounds().Dx(); px++ {
+			if py >= 0 && px >= 0 {
+				bg := color.RGBA{0, 0, 0, 180}
+				img.Set(px, py, bg)
+			}
+		}
+	}
+}
+
+// hsvToRGB converts HSV color to RGB
+func (r *Renderer) hsvToRGB(h, s, v float64) color.RGBA {
+	c := v * s
+	x := c * (1 - math.Abs(math.Mod(h/60, 2)-1))
+	m := v - c
+
+	var red, green, blue float64
+	switch {
+	case h < 60:
+		red, green, blue = c, x, 0
+	case h < 120:
+		red, green, blue = x, c, 0
+	case h < 180:
+		red, green, blue = 0, c, x
+	case h < 240:
+		red, green, blue = 0, x, c
+	case h < 300:
+		red, green, blue = x, 0, c
+	default:
+		red, green, blue = c, 0, x
+	}
+
+	return color.RGBA{
+		uint8((red + m) * 255),
+		uint8((green + m) * 255),
+		uint8((blue + m) * 255),
+		255,
+	}
 }

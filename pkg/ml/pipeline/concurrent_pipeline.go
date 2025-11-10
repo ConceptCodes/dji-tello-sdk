@@ -36,6 +36,12 @@ type ConcurrentMLPipeline struct {
 	// State management
 	running   bool
 	startTime time.Time
+
+	// Performance optimizations
+	framePool    sync.Pool                // Reuse frame objects
+	resultPool   sync.Pool                // Reuse result objects
+	batchBuffer  []*ml.EnhancedVideoFrame // Batch processing buffer
+	adaptiveRate int32                    // Adaptive processing rate
 }
 
 // PipelineMetrics tracks performance metrics for the pipeline
@@ -318,4 +324,195 @@ func NewPipelineMetrics() *PipelineMetrics {
 		gpuUsage:       0,
 		lastUpdate:     time.Now(),
 	}
+}
+
+// ProcessFrameOptimized adds a frame with adaptive rate control and pooling
+func (p *ConcurrentMLPipeline) ProcessFrameOptimized(frame *ml.EnhancedVideoFrame) error {
+	if !p.running {
+		return fmt.Errorf("pipeline is not running")
+	}
+
+	// Adaptive rate control based on current FPS
+	currentFPS := p.getCurrentFPS()
+	targetFPS := float64(p.config.TargetFPS)
+
+	if currentFPS > targetFPS*1.1 { // 10% tolerance
+		// Skip frames to maintain target FPS
+		return nil
+	}
+
+	// Try to reuse frame from pool
+	reusedFrame := p.framePool.Get()
+	if reusedFrame != nil {
+		// Copy data to reused frame
+		reusedFrame.(*ml.EnhancedVideoFrame).Data = frame.Data
+		reusedFrame.(*ml.EnhancedVideoFrame).Timestamp = frame.Timestamp
+		reusedFrame.(*ml.EnhancedVideoFrame).SeqNum = frame.SeqNum
+		frame = reusedFrame.(*ml.EnhancedVideoFrame)
+	}
+
+	select {
+	case p.frameQueue <- frame:
+		return nil
+	default:
+		// Queue is full, drop frame to maintain real-time performance
+		atomic.AddInt64(&p.droppedFrames, 1)
+		if reusedFrame != nil {
+			p.framePool.Put(reusedFrame)
+		}
+		return fmt.Errorf("frame queue is full, dropping frame")
+	}
+}
+
+// ProcessBatch processes multiple frames in batch for better throughput
+func (p *ConcurrentMLPipeline) ProcessBatch(frames []*ml.EnhancedVideoFrame) error {
+	if !p.running {
+		return fmt.Errorf("pipeline is not running")
+	}
+
+	if len(frames) == 0 {
+		return nil
+	}
+
+	// Adaptive batch size based on performance
+	batchSize := p.calculateOptimalBatchSize(len(frames))
+	if batchSize > len(frames) {
+		batchSize = len(frames)
+	}
+
+	// Process batch
+	for i := 0; i < batchSize; i++ {
+		frame := frames[i]
+
+		select {
+		case p.frameQueue <- frame:
+		default:
+			// Queue is full, drop remaining frames
+			atomic.AddInt64(&p.droppedFrames, int64(batchSize-i))
+			return fmt.Errorf("frame queue is full, dropping %d frames", batchSize-i)
+		}
+	}
+
+	return nil
+}
+
+// getCurrentFPS returns the current processing FPS
+func (p *ConcurrentMLPipeline) getCurrentFPS() float64 {
+	p.metrics.mu.RLock()
+	defer p.metrics.mu.RUnlock()
+	return p.metrics.fps
+}
+
+// calculateOptimalBatchSize determines optimal batch size based on current performance
+func (p *ConcurrentMLPipeline) calculateOptimalBatchSize(requestedSize int) int {
+	currentFPS := p.getCurrentFPS()
+	targetFPS := float64(p.config.TargetFPS)
+
+	// If we're below target FPS, use smaller batches
+	if currentFPS < targetFPS*0.8 {
+		return 1 // Process frames individually
+	}
+
+	// If we're at or above target, we can use larger batches
+	if currentFPS >= targetFPS {
+		if requestedSize <= 4 {
+			return requestedSize
+		}
+		return 4 // Cap at 4 for real-time performance
+	}
+
+	// Default case
+	if requestedSize <= 2 {
+		return requestedSize
+	}
+	return 2
+}
+
+// OptimizeForPerformance applies performance optimizations
+func (p *ConcurrentMLPipeline) OptimizeForPerformance() {
+	// Initialize object pools
+	p.framePool = sync.Pool{
+		New: func() interface{} {
+			return &ml.EnhancedVideoFrame{
+				MLResults: make(map[string]ml.MLResult),
+			}
+		},
+	}
+
+	p.resultPool = sync.Pool{
+		New: func() interface{} {
+			return &ml.DetectionResult{}
+		},
+	}
+
+	// Pre-allocate batch buffer
+	p.batchBuffer = make([]*ml.EnhancedVideoFrame, 0, 8)
+
+	// Set adaptive processing rate
+	atomic.StoreInt32(&p.adaptiveRate, 1)
+}
+
+// AdaptiveRateControl adjusts processing rate based on performance
+func (p *ConcurrentMLPipeline) AdaptiveRateControl() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			currentFPS := p.getCurrentFPS()
+			targetFPS := float64(p.config.TargetFPS)
+
+			var newRate int32
+			switch {
+			case currentFPS < targetFPS*0.7:
+				newRate = 1 // Process every frame
+			case currentFPS < targetFPS*0.9:
+				newRate = 2 // Process every 2nd frame
+			case currentFPS > targetFPS*1.2:
+				newRate = 3 // Process every 3rd frame
+			default:
+				newRate = 2 // Default to every 2nd frame
+			}
+
+			atomic.StoreInt32(&p.adaptiveRate, newRate)
+		}
+	}
+}
+
+// GetPerformanceStats returns detailed performance statistics
+func (p *ConcurrentMLPipeline) GetPerformanceStats() map[string]interface{} {
+	p.metrics.mu.RLock()
+	defer p.metrics.mu.RUnlock()
+
+	stats := map[string]interface{}{
+		"current_fps":     p.metrics.fps,
+		"target_fps":      p.config.TargetFPS,
+		"latency_ms":      p.metrics.latency.Milliseconds(),
+		"dropped_frames":  atomic.LoadInt64(&p.droppedFrames),
+		"queue_size":      len(p.frameQueue),
+		"queue_capacity":  cap(p.frameQueue),
+		"adaptive_rate":   atomic.LoadInt32(&p.adaptiveRate),
+		"memory_usage_mb": p.metrics.memoryUsage / 1024 / 1024,
+		"gpu_usage":       p.metrics.gpuUsage,
+		"processor_count": len(p.workers),
+		"uptime_seconds":  time.Since(p.startTime).Seconds(),
+	}
+
+	// Add per-processor stats
+	processorStats := make(map[string]interface{})
+	for name, worker := range p.workers {
+		procMetrics := worker.GetProcessor().GetMetrics()
+		processorStats[name] = map[string]interface{}{
+			"process_time_ms": procMetrics.ProcessTime.Milliseconds(),
+			"success_count":   procMetrics.SuccessCount,
+			"error_count":     procMetrics.ErrorCount,
+			"avg_latency_ms":  procMetrics.AvgLatency.Milliseconds(),
+		}
+	}
+	stats["processors"] = processorStats
+
+	return stats
 }

@@ -188,6 +188,62 @@ func (dr DepthResult) GetConfidence() float32 {
 	return sum / float32(len(dr.Confidence))
 }
 
+// TrackingResult represents object tracking results
+type TrackingResult struct {
+	Tracks    []Track   `json:"tracks"`
+	Processor string    `json:"processor"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// GetProcessorName implements MLResult interface
+func (tr TrackingResult) GetProcessorName() string {
+	return tr.Processor
+}
+
+// GetTimestamp implements MLResult interface
+func (tr TrackingResult) GetTimestamp() time.Time {
+	return tr.Timestamp
+}
+
+// GetConfidence implements MLResult interface
+func (tr TrackingResult) GetConfidence() float32 {
+	if len(tr.Tracks) == 0 {
+		return 0
+	}
+	maxConf := float32(0)
+	for _, track := range tr.Tracks {
+		if track.Confidence > maxConf {
+			maxConf = track.Confidence
+		}
+	}
+	return maxConf
+}
+
+// Track represents a tracked object
+type Track struct {
+	ID         int             `json:"id"`
+	Box        image.Rectangle `json:"box"`
+	ClassID    int             `json:"class_id"`
+	ClassName  string          `json:"class_name"`
+	Confidence float32         `json:"confidence"`
+	State      TrackState      `json:"state"`
+	Age        int             `json:"age"`
+	Hits       int             `json:"hits"`
+	Misses     int             `json:"misses"`
+	Timestamp  time.Time       `json:"timestamp"`
+	Velocity   Point3D         `json:"velocity"`
+	Prediction image.Rectangle `json:"prediction"`
+}
+
+// TrackState represents the state of a track
+type TrackState string
+
+const (
+	TrackStateTentative TrackState = "tentative"
+	TrackStateConfirmed TrackState = "confirmed"
+	TrackStateDeleted   TrackState = "deleted"
+)
+
 // ProcessingError represents an error in ML processing
 type ProcessingError struct {
 	Processor string    `json:"processor"`

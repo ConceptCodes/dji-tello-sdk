@@ -6,6 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 )
@@ -34,9 +35,27 @@ func main() {
 		log.Fatalf("Failed to get video frame channel")
 	}
 
+	// Create ML configuration with overlay enabled (optional)
+	mlConfig := &ml.MLConfig{
+		Overlay: ml.OverlayConfig{
+			Enabled:        true,
+			ShowFPS:        true,
+			ShowDetections: false, // Disabled for basic video GUI
+			ShowTracking:   false, // Disabled for basic video GUI
+			ShowConfidence: false, // Disabled for basic video GUI
+			Colors: map[string]string{
+				"default": "#00FF00",
+			},
+			LineWidth: 2,
+			FontSize:  12,
+			FontScale: 0.5,
+		},
+	}
+
 	// Create video display (web interface)
 	display := transport.NewVideoDisplay(transport.DisplayTypeWeb)
 	display.SetVideoChannel(frameChan)
+	display.SetMLConfig(mlConfig) // Set overlay configuration
 	display.SetWebPort(8080)
 
 	// Start display
@@ -47,6 +66,7 @@ func main() {
 
 	log.Println("🎥 Video GUI started!")
 	log.Println("🌐 Open http://localhost:8080 in your browser")
+	log.Println("📊 FPS overlay enabled")
 	log.Println("Press Ctrl+C to stop")
 
 	// Wait for interrupt signal

@@ -150,13 +150,7 @@ func (mvi *MLVideoIntegration) processFrames() {
 func (mvi *MLVideoIntegration) handleMLResult(result ml.MLResult) {
 	utils.Logger.Debugf("Received ML result from %s processor", result.GetProcessorName())
 
-	// TODO: Implement result handling based on overlay configuration
-	// This could include:
-	// - Drawing overlays on video frames
-	// - Sending commands to drone based on detections
-	// - Logging statistics
-	// - Triggering callbacks
-
+	// Process ML results based on type and configuration
 	switch r := result.(type) {
 	case *ml.DetectionResult:
 		utils.Logger.Debugf("Detection result: %d objects detected", len(r.Detections))
@@ -200,4 +194,20 @@ func (mvi *MLVideoIntegration) GetFrameChannel() <-chan VideoFrame {
 // GetMLResults returns the ML results channel for external consumers
 func (mvi *MLVideoIntegration) GetMLResults() <-chan ml.MLResult {
 	return mvi.mlPipeline.GetResults()
+}
+
+// CreateIntegratedVideoDisplay creates a video display with ML overlay integration
+func (mvi *MLVideoIntegration) CreateIntegratedVideoDisplay(displayType VideoDisplayType) *VideoDisplay {
+	display := NewVideoDisplay(displayType)
+
+	// Set video channel
+	display.SetVideoChannel(mvi.GetFrameChannel())
+
+	// Set ML result channel for overlay
+	display.SetMLResultChannel(mvi.GetMLResults())
+
+	// Set ML configuration for overlay rendering
+	display.SetMLConfig(mvi.mlConfig)
+
+	return display
 }

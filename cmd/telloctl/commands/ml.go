@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/config"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/models"
 	"github.com/spf13/cobra"
 )
 
@@ -78,6 +80,53 @@ var mlConfigCmd = &cobra.Command{
 	Long:  `Manage ML configurations including creation, validation, and listing.`,
 }
 
+// mlModelsCmd represents the ml models command
+var mlModelsCmd = &cobra.Command{
+	Use:   "models",
+	Short: "Model management commands",
+	Long:  `Manage ML models including download, list, and cleanup operations.`,
+}
+
+// mlModelsListCmd represents the ml models list command
+var mlModelsListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List downloaded models",
+	Long:  `List all downloaded ML models with their status and metadata.`,
+	RunE:  runMLModelsList,
+}
+
+// mlModelsDownloadCmd represents the ml models download command
+var mlModelsDownloadCmd = &cobra.Command{
+	Use:   "download [model-name]",
+	Short: "Download a model",
+	Long: `Download a specific ML model from the repository.
+	
+Available models:
+- yolo-v8n: YOLOv8 Nano (smallest, fastest)
+- yolo-v8s: YOLOv8 Small (balanced)
+- yolo-v8m: YOLOv8 Medium (accurate)
+- yolo-v8l: YOLOv8 Large (most accurate)`,
+	Args: cobra.ExactArgs(1),
+	RunE: runMLModelsDownload,
+}
+
+// mlModelsInfoCmd represents the ml models info command
+var mlModelsInfoCmd = &cobra.Command{
+	Use:   "info [model-name]",
+	Short: "Show model information",
+	Long:  `Display detailed information about a specific model.`,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runMLModelsInfo,
+}
+
+// mlModelsCleanupCmd represents the ml models cleanup command
+var mlModelsCleanupCmd = &cobra.Command{
+	Use:   "cleanup",
+	Short: "Clean up unused models",
+	Long:  `Remove unused or corrupted model files to free up disk space.`,
+	RunE:  runMLModelsCleanup,
+}
+
 // addMLCommands adds ML commands to the root command
 func addMLCommands() {
 	// Add flags to ML command
@@ -90,11 +139,18 @@ func addMLCommands() {
 	mlCmd.AddCommand(mlListCmd)
 	mlCmd.AddCommand(mlProcessorsCmd)
 	mlCmd.AddCommand(mlConfigCmd)
+	mlCmd.AddCommand(mlModelsCmd)
 
 	// Add config subcommands
 	mlConfigCmd.AddCommand(mlInitCmd)
 	mlConfigCmd.AddCommand(mlValidateCmd)
 	mlConfigCmd.AddCommand(mlListCmd)
+
+	// Add models subcommands
+	mlModelsCmd.AddCommand(mlModelsListCmd)
+	mlModelsCmd.AddCommand(mlModelsDownloadCmd)
+	mlModelsCmd.AddCommand(mlModelsInfoCmd)
+	mlModelsCmd.AddCommand(mlModelsCleanupCmd)
 }
 
 // MLCmd returns the ML command for external registration
@@ -276,6 +332,235 @@ func runMLProcessors(cmd *cobra.Command, args []string) error {
 	fmt.Printf("\n💡 Use 'telloctl ml init' to create processor configurations.\n")
 
 	return nil
+}
+
+// runMLModelsList lists downloaded models
+func runMLModelsList(cmd *cobra.Command, args []string) error {
+	modelManager, err := models.NewModelManager("models")
+	if err != nil {
+		return fmt.Errorf("failed to create model manager: %w", err)
+	}
+
+	modelList := modelManager.ListDownloadedModels()
+
+	if len(modelList) == 0 {
+		fmt.Printf("No models found. Use 'telloctl ml models download <model-name>' to download models.\n")
+		return nil
+	}
+
+	fmt.Printf("📦 Downloaded ML models:\n\n")
+	for _, model := range modelList {
+		fmt.Printf("🤖 %s\n", model.Name)
+		fmt.Printf("   Size: %s\n", formatBytes(model.Size))
+		fmt.Printf("   Path: %s\n", model.FilePath)
+		if model.Description != "" {
+			fmt.Printf("   Description: %s\n", model.Description)
+		}
+		if !model.DownloadedAt.IsZero() {
+			fmt.Printf("   Downloaded: %s\n", model.DownloadedAt.Format("2006-01-02 15:04:05"))
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+// runMLModelsDownload downloads a model
+func runMLModelsDownload(cmd *cobra.Command, args []string) error {
+	modelName := args[0]
+
+	modelManager, err := models.NewModelManager("models")
+	if err != nil {
+		return fmt.Errorf("failed to create model manager: %w", err)
+	}
+
+	// Check if model already exists
+	if modelManager.IsModelDownloaded(modelName) {
+		fmt.Printf("Model '%s' already exists. Use 'telloctl ml models info %s' for details.\n", modelName, modelName)
+		return nil
+	}
+
+	// Get model info for requested model
+	modelInfo, err := modelManager.GetModel(modelName)
+	if err != nil {
+		// Show available models if not found
+		fmt.Printf("❌ Model '%s' not found.\n\n", modelName)
+		fmt.Printf("📦 Available models:\n")
+		registryModels := modelManager.ListRegistryModels()
+		for _, model := range registryModels {
+			status := "📥 Available"
+			if modelManager.IsModelDownloaded(model.Name) {
+				status = "✅ Downloaded"
+			}
+			fmt.Printf("   %s %s - %s (%s)\n", status, model.Name, model.Description, formatBytes(model.Size))
+		}
+		return fmt.Errorf("model '%s' not found", modelName)
+	}
+
+	fmt.Printf("📥 Downloading model: %s\n", modelName)
+
+	// Download model with progress callback
+	progressChan := make(chan *models.DownloadProgress, 100)
+
+	// Start progress monitor
+	done := make(chan bool)
+	go func() {
+		for progress := range progressChan {
+			if progress.Error != "" {
+				fmt.Printf("\r❌ Error: %s\n", progress.Error)
+				done <- true
+				return
+			}
+			if progress.Completed {
+				fmt.Printf("\r✅ Download completed!\n")
+				done <- true
+				return
+			}
+			fmt.Printf("\r⏳ Downloading... %.1f%%", progress.Percentage*100)
+		}
+	}()
+
+	err = modelManager.DownloadModel(modelInfo, progressChan)
+	if err != nil {
+		close(progressChan)
+		return fmt.Errorf("failed to start download: %w", err)
+	}
+
+	// Wait for download to complete
+	<-done
+	close(progressChan)
+
+	// Get updated model info
+	downloadedModel, err := modelManager.GetModel(modelName)
+	if err != nil {
+		return fmt.Errorf("failed to get updated model info: %w", err)
+	}
+
+	fmt.Printf("✅ Model '%s' downloaded successfully!\n", downloadedModel.Name)
+	fmt.Printf("📁 Path: %s\n", downloadedModel.FilePath)
+	fmt.Printf("📏 Size: %s\n", formatBytes(downloadedModel.Size))
+
+	return nil
+}
+
+// runMLModelsInfo shows model information
+func runMLModelsInfo(cmd *cobra.Command, args []string) error {
+	modelName := args[0]
+
+	modelManager, err := models.NewModelManager("models")
+	if err != nil {
+		return fmt.Errorf("failed to create model manager: %w", err)
+	}
+
+	model, err := modelManager.GetModel(modelName)
+	if err != nil {
+		return fmt.Errorf("failed to get model info: %w", err)
+	}
+
+	fmt.Printf("🤖 Model Information: %s\n", model.Name)
+	fmt.Printf("   Status: %s\n", func() string {
+		if modelManager.IsModelDownloaded(modelName) {
+			return "✅ Downloaded"
+		}
+		return "📥 Not Downloaded"
+	}())
+	fmt.Printf("   Size: %s\n", formatBytes(model.Size))
+	if model.FilePath != "" {
+		fmt.Printf("   Path: %s\n", model.FilePath)
+	}
+	fmt.Printf("   Description: %s\n", model.Description)
+	if !model.DownloadedAt.IsZero() {
+		fmt.Printf("   Downloaded: %s\n", model.DownloadedAt.Format("2006-01-02 15:04:05"))
+	}
+
+	if model.Checksum != "" {
+		fmt.Printf("   SHA256: %s\n", model.Checksum)
+	}
+
+	return nil
+}
+
+// runMLModelsCleanup cleans up unused models
+func runMLModelsCleanup(cmd *cobra.Command, args []string) error {
+	modelManager, err := models.NewModelManager("models")
+	if err != nil {
+		return fmt.Errorf("failed to create model manager: %w", err)
+	}
+
+	fmt.Printf("🧹 Scanning for corrupted models...\n")
+
+	// Get all downloaded models
+	modelList := modelManager.ListDownloadedModels()
+
+	var toRemove []*models.ModelInfo
+	for _, model := range modelList {
+		// Validate model
+		if err := modelManager.ValidateModel(model.Name); err != nil {
+			fmt.Printf("❌ Model %s is corrupted: %v\n", model.Name, err)
+			toRemove = append(toRemove, model)
+		}
+	}
+
+	if len(toRemove) == 0 {
+		fmt.Printf("✅ All models are valid. No cleanup needed.\n")
+		return nil
+	}
+
+	fmt.Printf("Found %d corrupted model(s):\n", len(toRemove))
+	for _, model := range toRemove {
+		fmt.Printf("   - %s (%s)\n", model.Name, formatBytes(model.Size))
+	}
+
+	fmt.Printf("\nRemove these models? [y/N]: ")
+	var response string
+	fmt.Scanln(&response)
+
+	if strings.ToLower(response) == "y" || strings.ToLower(response) == "yes" {
+		for _, model := range toRemove {
+			if err := modelManager.RemoveModel(model.Name); err != nil {
+				fmt.Printf("❌ Failed to remove %s: %v\n", model.Name, err)
+			} else {
+				fmt.Printf("✅ Removed %s\n", model.Name)
+			}
+		}
+		fmt.Printf("🧹 Cleanup completed. Freed %s\n", formatBytes(calculateTotalSizePtr(toRemove)))
+	} else {
+		fmt.Printf("Cleanup cancelled.\n")
+	}
+
+	return nil
+}
+
+// formatBytes formats bytes in human readable format
+func formatBytes(bytes int64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+// calculateTotalSize calculates total size of models
+func calculateTotalSize(modelList []models.ModelInfo) int64 {
+	var total int64
+	for _, model := range modelList {
+		total += model.Size
+	}
+	return total
+}
+
+// calculateTotalSizePtr calculates total size of model pointers
+func calculateTotalSizePtr(modelList []*models.ModelInfo) int64 {
+	var total int64
+	for _, model := range modelList {
+		total += model.Size
+	}
+	return total
 }
 
 // createSchemaFiles creates the schema files in the configs/schemas directory

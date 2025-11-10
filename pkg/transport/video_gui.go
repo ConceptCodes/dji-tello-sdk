@@ -4,11 +4,14 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/overlay"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
@@ -22,28 +25,47 @@ const (
 
 // VideoDisplay handles real-time video display
 type VideoDisplay struct {
-	displayType VideoDisplayType
-	frameChan   <-chan VideoFrame
-	isRunning   bool
-	mutex       sync.Mutex
-	frameCount  int
-	startTime   time.Time
-	lastFrame   image.Image
-	webServer   *http.Server
-	webPort     int
+	displayType  VideoDisplayType
+	frameChan    <-chan VideoFrame
+	mlResultChan <-chan ml.MLResult
+	isRunning    bool
+	mutex        sync.Mutex
+	frameCount   int
+	startTime    time.Time
+	lastFrame    image.Image
+	webServer    *http.Server
+	webPort      int
+	overlay      *overlay.Renderer
+	mlConfig     *ml.MLConfig
+	lastMLResult map[string]ml.MLResult
+	metrics      ml.PipelineMetrics
 }
 
 // NewVideoDisplay creates a new video display
 func NewVideoDisplay(displayType VideoDisplayType) *VideoDisplay {
 	return &VideoDisplay{
-		displayType: displayType,
-		webPort:     8080,
+		displayType:  displayType,
+		webPort:      8080,
+		lastMLResult: make(map[string]ml.MLResult),
 	}
 }
 
 // SetVideoChannel sets the video frame channel
 func (vd *VideoDisplay) SetVideoChannel(frameChan <-chan VideoFrame) {
 	vd.frameChan = frameChan
+}
+
+// SetMLResultChannel sets the ML result channel
+func (vd *VideoDisplay) SetMLResultChannel(mlResultChan <-chan ml.MLResult) {
+	vd.mlResultChan = mlResultChan
+}
+
+// SetMLConfig sets the ML configuration for overlay rendering
+func (vd *VideoDisplay) SetMLConfig(mlConfig *ml.MLConfig) {
+	vd.mlConfig = mlConfig
+	if mlConfig != nil && mlConfig.Overlay.Enabled {
+		vd.overlay = overlay.NewRenderer(&mlConfig.Overlay)
+	}
 }
 
 // SetWebPort sets the web server port for web display
@@ -76,6 +98,11 @@ func (vd *VideoDisplay) Start() error {
 		go vd.processWebDisplay()
 	default:
 		return fmt.Errorf("unsupported display type: %s", vd.displayType)
+	}
+
+	// Start ML result processing if channel is available
+	if vd.mlResultChan != nil {
+		go vd.processMLResults()
 	}
 
 	utils.Logger.Infof("Video display started (%s mode)", vd.displayType)
@@ -131,7 +158,17 @@ func (vd *VideoDisplay) processTerminalDisplay() {
 			}
 
 			vd.frameCount++
-			vd.lastFrame = vd.createSimpleImage(frame)
+			baseImage := vd.createSimpleImage(frame)
+
+			// Apply overlay if available
+			if vd.overlay != nil && len(vd.lastMLResult) > 0 {
+				// Convert to drawable image
+				drawableImg := image.NewRGBA(baseImage.Bounds())
+				draw.Draw(drawableImg, baseImage.Bounds(), baseImage, image.Point{}, draw.Src)
+				vd.lastFrame = vd.overlay.Render(drawableImg, vd.lastMLResult, vd.metrics)
+			} else {
+				vd.lastFrame = baseImage
+			}
 
 			// Clear screen and display frame info
 			vd.displayTerminalFrame(frame)
@@ -386,7 +423,17 @@ func (vd *VideoDisplay) processWebDisplay() {
 			}
 
 			vd.frameCount++
-			vd.lastFrame = vd.createSimpleImage(frame)
+			baseImage := vd.createSimpleImage(frame)
+
+			// Apply overlay if available
+			if vd.overlay != nil && len(vd.lastMLResult) > 0 {
+				// Convert to drawable image
+				drawableImg := image.NewRGBA(baseImage.Bounds())
+				draw.Draw(drawableImg, baseImage.Bounds(), baseImage, image.Point{}, draw.Src)
+				vd.lastFrame = vd.overlay.Render(drawableImg, vd.lastMLResult, vd.metrics)
+			} else {
+				vd.lastFrame = baseImage
+			}
 
 		default:
 			if !vd.isRunning {
@@ -459,6 +506,37 @@ func (vd *VideoDisplay) GetStats() map[string]interface{} {
 	}
 
 	return stats
+}
+
+// processMLResults processes ML results for overlay rendering
+func (vd *VideoDisplay) processMLResults() {
+	for {
+		select {
+		case result, ok := <-vd.mlResultChan:
+			if !ok {
+				utils.Logger.Info("ML result channel closed")
+				return
+			}
+
+			if !vd.isRunning {
+				return
+			}
+
+			vd.mutex.Lock()
+			// Store result by processor name
+			processorName := result.GetProcessorName()
+			vd.lastMLResult[processorName] = result
+			vd.mutex.Unlock()
+
+			utils.Logger.Debugf("Received ML result from %s processor", processorName)
+
+		default:
+			if !vd.isRunning {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }
 
 // Close stops the display and cleans up resources
