@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DRONE COMMAND - Mission Control System</title>
+    <link rel="stylesheet" href="/static/css/main.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body>
+    <!-- App Bar -->
+    <header id="app-bar">
+        <div class="app-title">
+            <div class="glyph-icon">⬢</div>
+            <div>
+                <h1>DRONE COMMAND</h1>
+                <div class="subtitle">Mission Control System</div>
+            </div>
+        </div>
+        <div class="app-chips">
+            <div class="chip" id="app-power-chip">PWR: --%</div>
+            <div class="chip" id="app-mode-chip">IDLE</div>
+        </div>
+    </header>
+
+    <!-- Main Grid Layout -->
+    <main class="main-grid">
+        <!-- Left Sidebar -->
+        <aside class="panel panel-left">
+            <!-- Telemetry Card -->
+            <div class="card" id="card-telemetry">
+                <div class="card-header">
+                    <span>✈️</span>
+                    <span>TELEMETRY</span>
+                </div>
+                <div class="card-body" 
+                     hx-get="/api/telemetry" 
+                     hx-trigger="every 1s" 
+                     hx-swap="outerHTML">
+                    <!-- Telemetry content will be loaded here -->
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                </div>
+            </div>
+
+            <!-- ML Models Card -->
+            <div class="card" id="card-models">
+                <div class="card-header">
+                    <span>💗</span>
+                    <span>ML MODELS</span>
+                </div>
+                <div class="card-body">
+                    <div class="models-list" id="models-list">
+                        <div class="model-row" id="model-object-detection" 
+                             data-model="object-detection" 
+                             data-current-state="ACTIVE"
+                             hx-post="/api/models/toggle"
+                             hx-target="closest .model-row"
+                             hx-swap="outerHTML">
+                            <span class="model-name">Object Detection</span>
+                            <span class="pill pill-ok">ACTIVE</span>
+                        </div>
+                        <div class="model-row" id="model-person-tracking" 
+                             data-model="person-tracking" 
+                             data-current-state="ACTIVE"
+                             hx-post="/api/models/toggle"
+                             hx-target="closest .model-row"
+                             hx-swap="outerHTML">
+                            <span class="model-name">Person Tracking</span>
+                            <span class="pill pill-ok">ACTIVE</span>
+                        </div>
+                        <div class="model-row" id="model-vehicle-recognition" 
+                             data-model="vehicle-recognition" 
+                             data-current-state="STANDBY"
+                             hx-post="/api/models/toggle"
+                             hx-target="closest .model-row"
+                             hx-swap="outerHTML">
+                            <span class="model-name">Vehicle Recognition</span>
+                            <span class="pill pill-neutral">STANDBY</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Center Panel - Video Feed -->
+        <section class="panel panel-center">
+            <div class="card video-card">
+                <div class="video-header">
+                    <div class="video-title">
+                        <span>📹</span>
+                        <span>LIVE FEED</span>
+                        <div class="live-indicator">
+                            <span class="live-dot"></span>
+                            <span>LIVE</span>
+                        </div>
+                    </div>
+                    <div class="video-controls">
+                        <button class="icon-btn" id="feed-fullscreen-btn" title="Fullscreen">
+                            ⛶
+                        </button>
+                        <button class="icon-btn" id="feed-zoom-in-btn" title="Zoom In">
+                            🔍
+                        </button>
+                        <button class="icon-btn" id="feed-refresh-btn" title="Refresh">
+                            ↻
+                        </button>
+                    </div>
+                </div>
+                <div class="video-surface" id="feed-surface">
+                    <img class="video-frame" src="/video.jpg" alt="Video Feed" />
+                    
+                    <!-- Overlays -->
+                    <div class="overlay overlay-hud" id="feed-hud"
+                         hx-get="/api/feed/hud"
+                         hx-trigger="every 1s"
+                         hx-swap="innerHTML">
+                        <div class="time">--:--:--</div>
+                        <div class="gps">GPS: NO FIX</div>
+                    </div>
+                    
+                    <div class="overlay overlay-ministats" id="feed-ministats"
+                         hx-get="/api/feed/ministats"
+                         hx-trigger="every 1s"
+                         hx-swap="innerHTML">
+                        <div>ALT: --m</div>
+                        <div>SPD: --m/s</div>
+                    </div>
+                    
+                    <div class="overlay overlay-detections" id="feed-detections"
+                         hx-get="/api/detections"
+                         hx-trigger="every 500ms"
+                         hx-swap="innerHTML">
+                        <!-- Detection boxes will be rendered here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Sidebar -->
+        <aside class="panel panel-right">
+            <!-- Flight Controls Card -->
+            <div class="card" id="card-controls">
+                <div class="card-header">
+                    <span>🎮</span>
+                    <span>FLIGHT CONTROLS</span>
+                </div>
+                <div class="card-body">
+                    <button class="control-btn primary" id="btn-record"
+                            hx-post="/api/controls/record"
+                            hx-target="#btn-record"
+                            hx-swap="outerHTML">
+                        Start Recording
+                    </button>
+                    
+                    <button class="control-btn danger" id="btn-rtl"
+                            hx-post="/api/controls/rtl"
+                            hx-confirm="Return to launch? This will land the drone at its starting position.">
+                        Return Home
+                    </button>
+                    
+                    <button class="control-btn" id="btn-waypoint">
+                        Set Waypoint
+                    </button>
+                    
+                    <div class="control-groups">
+                        <div class="control-group-label">ALTITUDE</div>
+                        <button class="control-btn" id="ctrl-altitude-up">↑</button>
+                        <button class="control-btn" id="ctrl-altitude-down">↓</button>
+                        
+                        <div class="control-group-label">ROTATION</div>
+                        <button class="control-btn" id="ctrl-rot-ccw">⟲</button>
+                        <button class="control-btn" id="ctrl-rot-cw">⟳</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- System Status Card -->
+            <div class="card" id="card-status">
+                <div class="card-header">
+                    <span>⚙️</span>
+                    <span>SYSTEM STATUS</span>
+                </div>
+                <div class="card-body"
+                     hx-get="/api/status"
+                     hx-trigger="every 2s"
+                     hx-swap="outerHTML">
+                    <!-- Status content will be loaded here -->
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- Toast Container -->
+    <div class="toast-container"></div>
+
+    <!-- Detection Inspect Popup -->
+    <div id="feed-inspect" class="inspect-popup hidden"></div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

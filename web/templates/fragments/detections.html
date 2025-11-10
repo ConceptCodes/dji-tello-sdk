@@ -1,0 +1,9 @@
+{{range .}}
+<div class="detection-box" 
+     data-id="{{.ID}}" 
+     data-type="{{.Type}}"
+     data-bbox="{{.Bbox.X}},{{.Bbox.Y}},{{.Bbox.W}},{{.Bbox.H}}"
+     style="left: {{.Bbox.X}}%; top: {{.Bbox.Y}}%; width: {{.Bbox.W}}%; height: {{.Bbox.H}}%;">
+    <div class="detection-label">{{.Type}} {{.Confidence}}%</div>
+</div>
+{{end}}

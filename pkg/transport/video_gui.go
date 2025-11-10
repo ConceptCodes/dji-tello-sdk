@@ -256,6 +256,9 @@ func (vd *VideoDisplay) startWebServer() {
 	mux.HandleFunc("/", vd.handleWebPage)
 	mux.HandleFunc("/video.jpg", vd.handleVideoFrame)
 
+	// TODO: Integrate modern web server when commander is available
+	// This would require adding commander dependency to VideoDisplay
+
 	vd.webServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", vd.webPort),
 		Handler: mux,

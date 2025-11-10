@@ -1,0 +1,9 @@
+<div class="model-row" id="model-{{.ID}}" 
+     data-model="{{.ID}}" 
+     data-current-state="{{.State}}"
+     hx-post="/api/models/toggle"
+     hx-target="closest .model-row"
+     hx-swap="outerHTML">
+    <span class="model-name">{{.Name}}</span>
+    <span class="pill pill-{{.StateClass}}">{{.State}}</span>
+</div>

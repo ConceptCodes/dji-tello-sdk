@@ -1,0 +1,16 @@
+<div class="status-row">
+    <span class="status-label">Camera</span>
+    <span class="pill pill-{{.CameraStatus}}" id="status-camera">{{.CameraStatus}}</span>
+</div>
+<div class="status-row">
+    <span class="status-label">GPS</span>
+    <span class="pill pill-{{.GPSStatus}}" id="status-gps">{{.GPSStatus}}</span>
+</div>
+<div class="status-row">
+    <span class="status-label">Compass</span>
+    <span class="pill pill-{{.CompassStatus}}" id="status-compass">{{.CompassStatus}}</span>
+</div>
+<div class="status-row">
+    <span class="status-label">Battery</span>
+    <span class="pill pill-{{.BatteryStatus}}" id="status-battery">{{.BatteryStatus}} {{.BatteryPct}}%</span>
+</div>
