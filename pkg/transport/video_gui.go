@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
+	"image/jpeg"
 	"image/png"
 	"net/http"
 	"sync"
@@ -256,7 +257,8 @@ func (vd *VideoDisplay) startWebServer() {
 	mux.HandleFunc("/", vd.handleWebPage)
 	mux.HandleFunc("/video.jpg", vd.handleVideoFrame)
 
-	// TODO: Integrate modern web server when commander is available
+	// DEPRECATED: Use pkg/web/server.go for modern web interface instead
+	// TODO: Remove this package entirely after migration period
 	// This would require adding commander dependency to VideoDisplay
 
 	vd.webServer = &http.Server{
@@ -400,7 +402,7 @@ func (vd *VideoDisplay) handleVideoFrame(w http.ResponseWriter, r *http.Request)
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		// Convert image to JPEG and write response
-		if err := png.Encode(w, vd.lastFrame); err != nil {
+		if err := jpeg.Encode(w, vd.lastFrame, &jpeg.Options{Quality: 85}); err != nil {
 			utils.Logger.Errorf("Error encoding frame: %v", err)
 			http.Error(w, "Frame encoding error", http.StatusInternalServerError)
 		}

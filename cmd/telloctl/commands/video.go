@@ -96,11 +96,8 @@ Examples:
 			var err error
 
 			if saveFile != "" {
-				if videoFormat == transport.FormatMP4 {
-					recorder, err = transport.NewVideoRecorderMP4(":11111", saveFile)
-				} else {
-					recorder, err = transport.NewVideoRecorder(":11111", saveFile)
-				}
+				// Use existing frame channel from drone instead of creating duplicate listener
+				recorder, err = transport.NewVideoRecorderFromChannel(frameChan, saveFile)
 				if err != nil {
 					return fmt.Errorf("failed to create video recorder: %w", err)
 				}

@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/draw"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
@@ -32,6 +33,20 @@ const (
 	defaultVideoFrameWidth  = 960
 	defaultVideoFrameHeight = 720
 	colorBlockSize          = 8
+)
+
+var (
+	parserPool = sync.Pool{
+		New: func() interface{} {
+			return NewH264Parser()
+		},
+	}
+
+	bufferPool = sync.Pool{
+		New: func() interface{} {
+			return image.NewRGBA(image.Rect(0, 0, defaultVideoFrameWidth, defaultVideoFrameHeight))
+		},
+	}
 )
 
 func NewVideoStreamListener(listenAddr string) (*VideoStreamListener, error) {
@@ -76,6 +91,18 @@ func (vsl *VideoStreamListener) Stop() {
 	}
 }
 
+// Close gracefully shuts down the video stream listener and cleans up resources
+func (vsl *VideoStreamListener) Close() error {
+	vsl.Stop()
+
+	// Clear pools to release memory (optional but good practice)
+	parserPool = sync.Pool{}
+	bufferPool = sync.Pool{}
+
+	utils.Logger.Info("Video stream listener closed successfully")
+	return nil
+}
+
 // GetFrameChannel returns a read-only channel for receiving video frames
 func (vsl *VideoStreamListener) GetFrameChannel() <-chan VideoFrame {
 	return vsl.FrameChan
@@ -84,8 +111,10 @@ func (vsl *VideoStreamListener) GetFrameChannel() <-chan VideoFrame {
 func (vsl *VideoStreamListener) onVideoStreamData(data []byte, addr *net.UDPAddr) {
 	utils.Logger.Debugf("Received %d bytes of video data from %s", len(data), addr.String())
 
-	// Parse H.264 data
-	parser := NewH264Parser()
+	// Get parser from pool
+	parser := parserPool.Get().(*H264Parser)
+	defer parserPool.Put(parser)
+
 	nalUnits, err := parser.ParseFrame(data)
 	if err != nil {
 		utils.Logger.Errorf("Failed to parse H.264 frame: %v", err)

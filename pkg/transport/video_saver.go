@@ -168,6 +168,34 @@ func NewVideoRecorder(listenAddr, savePath string) (*VideoRecorder, error) {
 	return NewVideoRecorderWithFormat(listenAddr, savePath, FormatH264)
 }
 
+// NewVideoRecorderFromChannel creates a video recorder from existing frame channel
+func NewVideoRecorderFromChannel(frameChan <-chan VideoFrame, savePath string) (*VideoRecorder, error) {
+	return NewVideoRecorderWithFormatAndChannel(frameChan, savePath, FormatH264)
+}
+
+// NewVideoRecorderWithFormatAndChannel creates a video recorder with specified format and existing frame channel
+func NewVideoRecorderWithFormatAndChannel(frameChan <-chan VideoFrame, savePath string, format VideoFormat) (*VideoRecorder, error) {
+	recorder := &VideoRecorder{
+		listener:  nil, // No listener needed when using existing channel
+		frameChan: frameChan,
+		stopChan:  make(chan bool),
+		isRunning: false,
+		format:    format,
+	}
+
+	// Initialize appropriate saver based on format
+	switch format {
+	case FormatH264:
+		recorder.saver = NewVideoSaver(savePath)
+	case FormatMP4:
+		recorder.mp4Recorder = NewMP4VideoRecorder(savePath)
+	default:
+		return nil, fmt.Errorf("unsupported video format: %s", format)
+	}
+
+	return recorder, nil
+}
+
 // NewVideoRecorderWithFormat creates a new video recorder with specified format
 func NewVideoRecorderWithFormat(listenAddr, savePath string, format VideoFormat) (*VideoRecorder, error) {
 	listener, err := NewVideoStreamListener(listenAddr)
@@ -205,12 +233,14 @@ func (vr *VideoRecorder) StartRecording() error {
 		return fmt.Errorf("video recorder is already running")
 	}
 
-	// Start the video listener
-	go func() {
-		if err := vr.listener.Start(); err != nil {
-			utils.Logger.Errorf("Video listener error: %v", err)
-		}
-	}()
+	// Start the video listener only if we have one
+	if vr.listener != nil {
+		go func() {
+			if err := vr.listener.Start(); err != nil {
+				utils.Logger.Errorf("Video listener error: %v", err)
+			}
+		}()
+	}
 
 	// Start recording based on format
 	var err error

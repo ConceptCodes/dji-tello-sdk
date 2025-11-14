@@ -686,17 +686,33 @@ func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, er
 		utils.Logger.Infof("Safety config: %s", getSafetyConfigName(options))
 	}
 
+	// Start listeners with error handling
+	stateListenerErr := make(chan error, 1)
+	videoListenerErr := make(chan error, 1)
+
 	go func() {
 		if err := stateListener.Start(); err != nil {
-			utils.Logger.Errorf("Failed to start state listener: %v", err)
+			stateListenerErr <- fmt.Errorf("failed to start state listener: %w", err)
+		} else {
+			close(stateListenerErr)
 		}
 	}()
 
 	go func() {
 		if err := videoStreamListener.Start(); err != nil {
-			utils.Logger.Errorf("Failed to start video stream listener: %v", err)
+			videoListenerErr <- fmt.Errorf("failed to start video stream listener: %w", err)
+		} else {
+			close(videoListenerErr)
 		}
 	}()
+
+	// Wait for listener startup and check for errors
+	if err := <-stateListenerErr; err != nil {
+		return nil, err
+	}
+	if err := <-videoListenerErr; err != nil {
+		return nil, err
+	}
 
 	utils.Logger.Info("Tello SDK initialized successfully")
 	return commander, nil
