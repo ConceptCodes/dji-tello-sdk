@@ -1,16 +1,21 @@
-<div class="status-row">
-    <span class="status-label">Camera</span>
-    <span class="pill pill-{{.CameraStatus}}" id="status-camera">{{.CameraStatus}}</span>
-</div>
-<div class="status-row">
-    <span class="status-label">GPS</span>
-    <span class="pill pill-{{.GPSStatus}}" id="status-gps">{{.GPSStatus}}</span>
-</div>
-<div class="status-row">
-    <span class="status-label">Compass</span>
-    <span class="pill pill-{{.CompassStatus}}" id="status-compass">{{.CompassStatus}}</span>
-</div>
-<div class="status-row">
-    <span class="status-label">Battery</span>
-    <span class="pill pill-{{.BatteryStatus}}" id="status-battery">{{.BatteryStatus}} {{.BatteryPct}}%</span>
+<div class="card-body status-body" id="status-body"
+     hx-get="/api/status"
+     hx-trigger="every 2s"
+    hx-swap="outerHTML">
+    <div class="status-row">
+        <span class="status-label">Camera</span>
+        <span class="pill pill-{{.Camera.Tone}}" id="status-camera">{{.Camera.Label}}</span>
+    </div>
+    <div class="status-row">
+        <span class="status-label">GPS</span>
+        <span class="pill pill-{{.GPS.Tone}}" id="status-gps">{{.GPS.Label}}</span>
+    </div>
+    <div class="status-row">
+        <span class="status-label">Compass</span>
+        <span class="pill pill-{{.Compass.Tone}}" id="status-compass">{{.Compass.Label}}</span>
+    </div>
+    <div class="status-row">
+        <span class="status-label">Battery</span>
+        <span class="pill pill-{{.Battery.Tone}}" id="status-battery">{{.Battery.Label}} {{.BatteryPct}}%</span>
+    </div>
 </div>

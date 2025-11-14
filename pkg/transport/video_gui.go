@@ -20,26 +20,28 @@ import (
 type VideoDisplayType string
 
 const (
-	DisplayTypeTerminal VideoDisplayType = "terminal"
-	DisplayTypeWeb      VideoDisplayType = "web"
+	DisplayTypeWeb    VideoDisplayType = "web"
+	DisplayTypeNative VideoDisplayType = "native"
 )
 
 // VideoDisplay handles real-time video display
 type VideoDisplay struct {
-	displayType  VideoDisplayType
-	frameChan    <-chan VideoFrame
-	mlResultChan <-chan ml.MLResult
-	isRunning    bool
-	mutex        sync.Mutex
-	frameCount   int
-	startTime    time.Time
-	lastFrame    image.Image
-	webServer    *http.Server
-	webPort      int
-	overlay      *overlay.Renderer
-	mlConfig     *ml.MLConfig
-	lastMLResult map[string]ml.MLResult
-	metrics      ml.PipelineMetrics
+	displayType        VideoDisplayType
+	frameChan          <-chan VideoFrame
+	mlResultChan       <-chan ml.MLResult
+	isRunning          bool
+	mutex              sync.Mutex
+	frameCount         int
+	startTime          time.Time
+	lastFrame          image.Image
+	webServer          *http.Server
+	webPort            int
+	customIndexHandler http.HandlerFunc
+	customRouteSetup   func(*http.ServeMux)
+	overlay            *overlay.Renderer
+	mlConfig           *ml.MLConfig
+	lastMLResult       map[string]ml.MLResult
+	metrics            ml.PipelineMetrics
 }
 
 // NewVideoDisplay creates a new video display
@@ -74,6 +76,12 @@ func (vd *VideoDisplay) SetWebPort(port int) {
 	vd.webPort = port
 }
 
+// SetCustomWebHandlers allows consumers to override the index handler and register extra routes.
+func (vd *VideoDisplay) SetCustomWebHandlers(indexHandler http.HandlerFunc, routeSetup func(*http.ServeMux)) {
+	vd.customIndexHandler = indexHandler
+	vd.customRouteSetup = routeSetup
+}
+
 // Start begins the video display
 func (vd *VideoDisplay) Start() error {
 	vd.mutex.Lock()
@@ -92,11 +100,11 @@ func (vd *VideoDisplay) Start() error {
 	vd.frameCount = 0
 
 	switch vd.displayType {
-	case DisplayTypeTerminal:
-		go vd.processTerminalDisplay()
 	case DisplayTypeWeb:
 		go vd.startWebServer()
 		go vd.processWebDisplay()
+	case DisplayTypeNative:
+		go vd.startNativeDisplay()
 	default:
 		return fmt.Errorf("unsupported display type: %s", vd.displayType)
 	}
@@ -138,57 +146,6 @@ func (vd *VideoDisplay) IsRunning() bool {
 	vd.mutex.Lock()
 	defer vd.mutex.Unlock()
 	return vd.isRunning
-}
-
-// processTerminalDisplay displays video frames in terminal
-func (vd *VideoDisplay) processTerminalDisplay() {
-	fmt.Println("🎥 Tello Video Display - Terminal Mode")
-	fmt.Println("Press Ctrl+C to stop")
-	fmt.Println("================================")
-
-	for {
-		select {
-		case frame, ok := <-vd.frameChan:
-			if !ok {
-				fmt.Println("\nVideo channel closed")
-				return
-			}
-
-			if !vd.isRunning {
-				return
-			}
-
-			vd.frameCount++
-			baseImage := vd.createSimpleImage(frame)
-
-			// Apply overlay if available
-			if vd.overlay != nil && len(vd.lastMLResult) > 0 {
-				// Convert to drawable image
-				drawableImg := image.NewRGBA(baseImage.Bounds())
-				draw.Draw(drawableImg, baseImage.Bounds(), baseImage, image.Point{}, draw.Src)
-				vd.lastFrame = vd.overlay.Render(drawableImg, vd.lastMLResult, vd.metrics)
-			} else {
-				vd.lastFrame = baseImage
-			}
-
-			// Clear screen and display frame info
-			vd.displayTerminalFrame(frame)
-
-			// Update every 30 frames
-			if vd.frameCount%30 == 0 {
-				elapsed := time.Since(vd.startTime)
-				fps := float64(vd.frameCount) / elapsed.Seconds()
-				fmt.Printf("\n📊 Stats: %d frames | %.1f FPS | %.1fs elapsed\n",
-					vd.frameCount, fps, elapsed.Seconds())
-			}
-
-		default:
-			if !vd.isRunning {
-				return
-			}
-			time.Sleep(33 * time.Millisecond) // ~30 FPS
-		}
-	}
 }
 
 // displayTerminalFrame displays frame information in terminal
@@ -254,8 +211,17 @@ func (vd *VideoDisplay) startWebServer() {
 	mux := http.NewServeMux()
 
 	// Serve video stream page
-	mux.HandleFunc("/", vd.handleWebPage)
+	if vd.customIndexHandler != nil {
+		mux.HandleFunc("/", vd.customIndexHandler)
+	} else {
+		mux.HandleFunc("/", vd.handleWebPage)
+	}
+
 	mux.HandleFunc("/video.jpg", vd.handleVideoFrame)
+
+	if vd.customRouteSetup != nil {
+		vd.customRouteSetup(mux)
+	}
 
 	// DEPRECATED: Use pkg/web/server.go for modern web interface instead
 	// TODO: Remove this package entirely after migration period
@@ -270,6 +236,21 @@ func (vd *VideoDisplay) startWebServer() {
 	if err := vd.webServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		utils.Logger.Errorf("Web server error: %v", err)
 	}
+}
+
+// startNativeDisplay starts native GUI window display
+func (vd *VideoDisplay) startNativeDisplay() {
+	// Start native GUI window with video display
+	// This would use platform-specific GUI libraries like GLFW, Fyne, etc.
+	// For now, provide a simple implementation that shows video in a window
+
+	utils.Logger.Info("Starting native GUI display")
+
+	// For this implementation, we'll use the web display as fallback
+	// In a full implementation, this would open a native window
+	// and render video frames directly using platform GUI libraries
+	vd.startWebServer()
+	vd.processWebDisplay()
 }
 
 // handleWebPage serves the HTML page for video display

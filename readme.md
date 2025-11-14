@@ -12,7 +12,7 @@ A comprehensive and easy-to-use Go SDK for the DJI Tello drone, featuring priori
 - 📊 **Telemetry Monitoring** - Real-time battery, altitude, attitude, and sensor data
 - ⚡ **Priority Command Queue** - Intelligent command prioritization for responsive control
 - 🖥️ **CLI Tool** - Comprehensive command-line interface (`telloctl`)
-- 🌐 **Web Interface** - Browser-based video display and control
+- 🌐 **Web Interface** - HTMX-driven mission control UI with collapsible cards, live logs, and dark/light themes
 - 🔧 **Modular Architecture** - Clean, testable, and extensible design
 
 ## Installation
@@ -562,6 +562,21 @@ telloctl gamepad
 telloctl gamepad --preset xbox
 ```
 
+#### Web Interface Commands
+```bash
+# Start native GUI window for video feed
+telloctl video-gui
+
+# Start terminal ASCII video display
+telloctl video-gui -t terminal
+
+# Start comprehensive web interface (video + controls + telemetry)
+telloctl web
+
+# Start web interface on custom port
+telloctl web -p 9000
+```
+
 Gamepad configuration is discovered automatically in this order:
 
 1. `config.json` (or `gamepad-config.json`) in the current directory
@@ -571,6 +586,26 @@ Gamepad configuration is discovered automatically in this order:
 No CLI flag is required—drop a config file in one of those locations and `telloctl gamepad` will pick it up.
 
 The same lookup order is used by the safety manager when you initialize the SDK, so a single `config.json` can drive both pilot safety limits and controller behavior without extra flags.
+
+### Mission Control Web Interface (HTMX)
+
+Run `telloctl web` (optionally `-p 9000`) to launch the Mission Control dashboard. The interface is built with HTMX + vanilla JS so it stays responsive even if the drone is offline; telemetry/status panes keep polling, and the video area shows placeholders until a stream arrives.
+
+**Layout highlights**
+- Collapsible cards for Telemetry, ML Models, Flight Controls, System Status, and Event Log keep the grid tidy on any screen size (collapsed state persists through HTMX swaps).
+- The center card hosts the video feed, HUD mini-panels, detection overlays, and quick actions (fullscreen, zoom, refresh).
+- A dedicated Event Log replaces inline error text; connection and UI events append here with color-coded severity.
+- The connection banner provides a `Connect Drone` action that’s safe to use even when the drone is unplugged—the rest of the UI remains available.
+- The ML Models list stays empty until `/api/models` reports available processors, matching the current backend behavior.
+
+**Dark/Light themes**
+- A “chip” toggle in the header switches between IBM Plex Mono themed dark and light palettes. Preferences persist via `localStorage` and will auto-follow the system theme unless the user chooses manually.
+- CSS variables live in `web/static/css/main.css`, so extending the palette or adding per-component overrides is straightforward.
+
+**Customization tips**
+- Front-end interactions live in `web/static/js/app.js` (look for the `MissionControl` class). The theme logic, card toggles, log management, and connection flow can be extended there.
+- Server-side HTMX fragments are under `web/templates/`; swap telemetry/status partials if you need additional fields without touching the main layout.
+- All cards are safe to use before the drone connects, so you can keep the UI open while troubleshooting network issues.
 
 ### Video Frame Structure
 

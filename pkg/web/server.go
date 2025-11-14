@@ -20,16 +20,24 @@ type TelemetryData struct {
 	LatDeg          float64 `json:"lat_deg"`
 	LonDeg          float64 `json:"lon_deg"`
 	SignalPct       int     `json:"signal_pct"`
+	SignalTone      string  `json:"signal_tone"`
 	DetectionsCount int     `json:"detections_count"`
+	DetectionsTone  string  `json:"detections_tone"`
+}
+
+// StatusIndicator describes a label + tone pair for pill badges.
+type StatusIndicator struct {
+	Label string `json:"label"`
+	Tone  string `json:"tone"`
 }
 
 // SystemStatus represents system status structure
 type SystemStatus struct {
-	CameraStatus  string `json:"camera"`
-	GPSStatus     string `json:"gps"`
-	CompassStatus string `json:"compass"`
-	BatteryStatus string `json:"battery"`
-	BatteryPct    int    `json:"battery_pct"`
+	Camera     StatusIndicator `json:"camera"`
+	GPS        StatusIndicator `json:"gps"`
+	Compass    StatusIndicator `json:"compass"`
+	Battery    StatusIndicator `json:"battery"`
+	BatteryPct int             `json:"battery_pct"`
 }
 
 // HUDData represents HUD overlay data
@@ -98,6 +106,7 @@ type WebServer struct {
 	lastMLResults map[string]ml.MLResult
 	templates     *template.Template
 	csrfTokens    map[string]time.Time
+	connection    *ConnectionCoordinator
 }
 
 // NewWebServer creates a new web server instance
@@ -107,13 +116,16 @@ func NewWebServer(commander tello.TelloCommander, mlResultChan <-chan ml.MLResul
 		mlResultChan:  mlResultChan,
 		lastMLResults: make(map[string]ml.MLResult),
 		csrfTokens:    make(map[string]time.Time),
+		connection:    NewConnectionCoordinator(commander),
 	}
 
 	// Load templates
 	ws.loadTemplates()
 
 	// Start ML result processing
-	go ws.processMLResults()
+	if ws.mlResultChan != nil {
+		go ws.processMLResults()
+	}
 
 	return ws
 }
@@ -130,13 +142,13 @@ func (ws *WebServer) processMLResults() {
 	}
 }
 
-// SetupRoutes configures HTTP routes
-func (ws *WebServer) SetupRoutes(mux *http.ServeMux) {
+func (ws *WebServer) setupSharedRoutes(mux *http.ServeMux) {
 	// Static files
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("web/static/"))))
 
-	// Main page
-	mux.HandleFunc("/", ws.handleIndex)
+	// Connection endpoints
+	mux.HandleFunc("/api/connection/status", ws.handleConnectionStatus)
+	mux.HandleFunc("/api/connection/connect", ws.handleConnectionConnect)
 
 	// API endpoints
 	mux.HandleFunc("/api/telemetry", ws.handleTelemetry)
@@ -156,6 +168,86 @@ func (ws *WebServer) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/controls/altitude", ws.handleAltitudeControl)
 	mux.HandleFunc("/api/controls/rotation", ws.handleRotationControl)
 	mux.HandleFunc("/api/controls/waypoint", ws.handleWaypointControl)
+}
+
+// SetupRoutes configures HTTP routes including the index page
+func (ws *WebServer) SetupRoutes(mux *http.ServeMux) {
+	ws.setupSharedRoutes(mux)
+	mux.HandleFunc("/", ws.handleIndex)
+}
+
+// SetupRoutesWithoutIndex registers all API/static routes but allows a custom index handler.
+func (ws *WebServer) SetupRoutesWithoutIndex(mux *http.ServeMux) {
+	ws.setupSharedRoutes(mux)
+}
+
+// HandleIndex exposes the index handler for custom mux wiring.
+func (ws *WebServer) HandleIndex(w http.ResponseWriter, r *http.Request) {
+	ws.handleIndex(w, r)
+}
+
+// ConnectionCoordinator returns the shared coordinator for drone connections.
+func (ws *WebServer) ConnectionCoordinator() *ConnectionCoordinator {
+	return ws.connection
+}
+
+func (ws *WebServer) handleConnectionStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if ws.connection == nil {
+		http.Error(w, "Connection coordinator unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	status := ws.connection.Status()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		utils.Logger.Errorf("Failed to encode connection status: %v", err)
+	}
+}
+
+func (ws *WebServer) handleConnectionConnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !ws.validateCSRF(r) {
+		http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+		return
+	}
+
+	if ws.connection == nil {
+		http.Error(w, "Connection coordinator unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	err := ws.connection.Connect()
+	status := ws.connection.Status()
+
+	response := map[string]interface{}{
+		"status": status,
+	}
+
+	if err != nil {
+		response["error"] = err.Error()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		if encodeErr := json.NewEncoder(w).Encode(response); encodeErr != nil {
+			utils.Logger.Errorf("Failed to encode connection error response: %v", encodeErr)
+		}
+		return
+	}
+
+	response["message"] = "Drone connected successfully"
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		utils.Logger.Errorf("Failed to encode connection response: %v", err)
+	}
 }
 
 // handleIndex serves main HTML page
@@ -635,14 +727,23 @@ func (ws *WebServer) handleWaypointControl(w http.ResponseWriter, r *http.Reques
 // Data retrieval methods
 
 func (ws *WebServer) getTelemetryData() *TelemetryData {
+	connected := ws.connection != nil && ws.connection.IsConnected()
+
+	signalPct := 0
+	if connected {
+		signalPct = 85
+	}
+
 	telemetry := &TelemetryData{
 		AltitudeM:       0,
 		SpeedMPS:        0,
 		LatDeg:          0,
 		LonDeg:          0,
-		SignalPct:       85,
+		SignalPct:       signalPct,
+		SignalTone:      toneFromPercentage(signalPct),
 		DetectionsCount: len(ws.getDetections()),
 	}
+	telemetry.DetectionsTone = toneFromCount(telemetry.DetectionsCount)
 
 	// Get data from commander if available
 	if ws.commander != nil {
@@ -655,29 +756,41 @@ func (ws *WebServer) getTelemetryData() *TelemetryData {
 		}
 	}
 
+	telemetry.SignalTone = toneFromPercentage(telemetry.SignalPct)
+
 	return telemetry
 }
 
 func (ws *WebServer) getSystemStatus() *SystemStatus {
 	status := &SystemStatus{
-		CameraStatus:  "OK",
-		GPSStatus:     "WARN",
-		CompassStatus: "OK",
-		BatteryStatus: "OK",
-		BatteryPct:    75,
+		Camera:     newIndicator("OFFLINE", "warn"),
+		GPS:        newIndicator("NO FIX", "warn"),
+		Compass:    newIndicator("STANDBY", "neutral"),
+		Battery:    newIndicator("OK", "ok"),
+		BatteryPct: 75,
+	}
+
+	if ws.connection != nil {
+		connStatus := ws.connection.Status()
+		if connStatus.Connected {
+			status.Camera = newIndicator("LIVE", "ok")
+			status.GPS = newIndicator("LOCKED", "ok")
+			status.Compass = newIndicator("CALIBRATED", "ok")
+		} else if connStatus.LastError != "" {
+			status.Camera = newIndicator("ERROR", "err")
+		} else {
+			status.Camera = newIndicator("IDLE", "neutral")
+		}
 	}
 
 	// Get battery data from commander if available
 	if ws.commander != nil {
 		if battery, err := ws.commander.GetBatteryPercentage(); err == nil {
 			status.BatteryPct = battery
-			if battery < 20 {
-				status.BatteryStatus = "ERR"
-			} else if battery < 50 {
-				status.BatteryStatus = "WARN"
-			}
 		}
 	}
+
+	status.Battery = batteryIndicator(status.BatteryPct)
 
 	return status
 }
@@ -699,26 +812,7 @@ func (ws *WebServer) getAppChipsData() *AppChipsData {
 }
 
 func (ws *WebServer) getModelsData() []ModelState {
-	return []ModelState{
-		{
-			ID:         "object-detection",
-			Name:       "Object Detection",
-			State:      "ACTIVE",
-			StateClass: "ok",
-		},
-		{
-			ID:         "person-tracking",
-			Name:       "Person Tracking",
-			State:      "ACTIVE",
-			StateClass: "ok",
-		},
-		{
-			ID:         "vehicle-recognition",
-			Name:       "Vehicle Recognition",
-			State:      "STANDBY",
-			StateClass: "neutral",
-		},
-	}
+	return []ModelState{}
 }
 
 func (ws *WebServer) getHUDData() *HUDData {
@@ -746,6 +840,49 @@ func (ws *WebServer) getMiniStatsData() *MiniStatsData {
 	}
 
 	return stats
+}
+
+func newIndicator(label, tone string) StatusIndicator {
+	if tone == "" {
+		tone = "neutral"
+	}
+
+	return StatusIndicator{
+		Label: strings.ToUpper(label),
+		Tone:  tone,
+	}
+}
+
+func batteryIndicator(pct int) StatusIndicator {
+	tone := toneFromPercentage(pct)
+	label := "OK"
+
+	switch tone {
+	case "warn":
+		label = "LOW"
+	case "err":
+		label = "CRIT"
+	}
+
+	return newIndicator(label, tone)
+}
+
+func toneFromPercentage(pct int) string {
+	switch {
+	case pct <= 15:
+		return "err"
+	case pct <= 40:
+		return "warn"
+	default:
+		return "ok"
+	}
+}
+
+func toneFromCount(count int) string {
+	if count <= 0 {
+		return "neutral"
+	}
+	return "ok"
 }
 
 func (ws *WebServer) getDetections() []Detection {

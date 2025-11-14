@@ -2,9 +2,12 @@
 
 class MissionControl {
     constructor() {
+        this.themeStorageKey = 'mission-control-theme';
         this.init();
         this.setupEventListeners();
         this.setupKeyboardShortcuts();
+        this.setupCardToggles();
+        this.setupThemePreferenceWatcher();
         this.startPolling();
     }
 
@@ -21,11 +24,28 @@ class MissionControl {
             recording: false,
             waypointMode: false,
             fullscreen: false,
-            zoom: 1.0
+            zoom: 1.0,
+            powerPct: null,
+            theme: document.documentElement.getAttribute('data-theme') || 'dark',
+            connection: {
+                connected: false,
+                last_error: null
+            }
+        };
+        const storedTheme = this.getStoredTheme();
+        if (storedTheme && storedTheme !== this.state.theme) {
+            document.documentElement.setAttribute('data-theme', storedTheme);
+            this.state.theme = storedTheme;
+        }
+
+        this.flags = {
+            chipsErrorLogged: false,
+            modelsErrorLogged: false,
         };
 
         // Setup CSRF token for HTMX
         this.setupCSRF();
+        this.updateModeDisplay();
     }
 
     setupCSRF() {
@@ -129,6 +149,28 @@ class MissionControl {
                 }
             });
         }
+
+        this.connectionElements = {
+            banner: document.getElementById('connection-banner'),
+            stateLabel: document.getElementById('connection-state-label'),
+            button: document.getElementById('connect-drone-btn')
+        };
+        this.logContainer = document.getElementById('event-log');
+
+        if (this.connectionElements.banner) {
+            this.connectionElements.banner.classList.add('disconnected');
+        }
+
+        if (this.connectionElements.button) {
+            this.connectionElements.button.addEventListener('click', () => this.connectDrone());
+        }
+
+        const themeToggle = document.getElementById('theme-toggle');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => this.toggleTheme());
+        }
+
+        this.updateThemeToggle();
     }
 
     setupKeyboardShortcuts() {
@@ -182,11 +224,259 @@ class MissionControl {
         });
     }
 
+    setupCardToggles() {
+        this.collapseMap = new Map();
+
+        document.querySelectorAll('.collapse-toggle').forEach(button => {
+            const targetId = button.getAttribute('data-target');
+            if (!targetId) {
+                return;
+            }
+
+            this.collapseMap.set(targetId, button);
+            button.dataset.collapsed = 'false';
+            button.setAttribute('aria-expanded', 'true');
+            button.textContent = '−';
+
+            button.addEventListener('click', () => {
+                const body = document.getElementById(targetId);
+                if (!body) {
+                    return;
+                }
+                const collapsed = body.classList.toggle('collapsed');
+                button.dataset.collapsed = collapsed ? 'true' : 'false';
+                button.setAttribute('aria-expanded', (!collapsed).toString());
+                button.textContent = collapsed ? '+' : '−';
+            });
+        });
+
+        document.addEventListener('htmx:afterSwap', (event) => {
+            const targetId = event.target.id;
+            if (!targetId) {
+                return;
+            }
+            const button = this.collapseMap.get(targetId);
+            if (!button) {
+                return;
+            }
+            const collapsed = button.dataset.collapsed === 'true';
+            if (collapsed) {
+                event.target.classList.add('collapsed');
+                button.setAttribute('aria-expanded', 'false');
+                button.textContent = '+';
+            }
+        });
+    }
+
     startPolling() {
         // HTMX handles most polling automatically
         // Add any additional polling logic here
         this.updateTime();
         setInterval(() => this.updateTime(), 1000);
+        this.updateConnectionStatus();
+        setInterval(() => this.updateConnectionStatus(), 5000);
+        this.updateModels();
+        setInterval(() => this.updateModels(), 5000);
+        this.updateChips();
+        setInterval(() => this.updateChips(), 7000);
+    }
+
+    // Connection Controls
+    async updateConnectionStatus() {
+        if (!this.connectionElements || !this.connectionElements.stateLabel) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/connection/status');
+            if (!response.ok) {
+                throw new Error('Unable to fetch status');
+            }
+            const status = await response.json();
+            const previousStatus = this.state.connection || {};
+            this.state.connection = status;
+            this.renderConnectionStatus(status, previousStatus);
+        } catch (err) {
+            this.appendLog('Connection status unavailable', 'warn');
+            console.error('Connection status error', err);
+        }
+    }
+
+    renderConnectionStatus(status, previousStatus = {}) {
+        if (!this.connectionElements || !this.connectionElements.banner || !this.connectionElements.stateLabel) {
+            return;
+        }
+
+        const { banner, stateLabel, button } = this.connectionElements;
+
+        if (status.connected) {
+            banner.classList.add('connected');
+            banner.classList.remove('disconnected');
+            stateLabel.textContent = 'Drone Connected';
+            if (button) {
+                button.disabled = true;
+                button.textContent = 'Connected';
+            }
+            if (!previousStatus.connected) {
+                this.appendLog('Drone connected', 'success');
+            }
+        } else {
+            banner.classList.add('disconnected');
+            banner.classList.remove('connected');
+            stateLabel.textContent = 'Drone Disconnected';
+            if (button) {
+                button.disabled = false;
+                button.textContent = 'Connect Drone';
+            }
+            if (previousStatus.connected) {
+                this.appendLog('Drone disconnected', 'warn');
+            }
+            if (status.last_error && status.last_error !== previousStatus.last_error) {
+                this.appendLog(status.last_error, 'error');
+            }
+        }
+    }
+
+    async connectDrone() {
+        if (!this.connectionElements || !this.connectionElements.button) {
+            return;
+        }
+
+        const button = this.connectionElements.button;
+        button.disabled = true;
+        button.textContent = 'Connecting...';
+        this.appendLog('Attempting to connect to drone…', 'info');
+
+        try {
+            const response = await fetch('/api/connection/connect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': document.csrfToken || ''
+                }
+            });
+
+            const text = await response.text();
+            let payload = {};
+            if (text) {
+                try {
+                    payload = JSON.parse(text);
+                } catch (parseErr) {
+                    payload = { error: text };
+                }
+            }
+
+            if (!response.ok) {
+                throw new Error(payload.error || 'Failed to connect');
+            }
+
+            this.showToast(payload.message || 'Drone connected', 'success');
+            this.appendLog(payload.message || 'Drone connected successfully', 'success');
+            if (payload.status) {
+                const previousStatus = this.state.connection || {};
+                this.state.connection = payload.status;
+                this.renderConnectionStatus(payload.status, previousStatus);
+            } else {
+                this.updateConnectionStatus();
+            }
+        } catch (err) {
+            this.appendLog(err.message, 'error');
+            this.showToast(err.message, 'error');
+            button.disabled = false;
+            button.textContent = 'Connect Drone';
+        }
+    }
+
+    async updateModels() {
+        const container = document.getElementById('models-list');
+        if (!container) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/models');
+            if (!response.ok) {
+                throw new Error('Unable to fetch models');
+            }
+            const models = await response.json();
+            this.flags.modelsErrorLogged = false;
+            this.renderModels(container, models);
+        } catch (err) {
+            if (!this.flags.modelsErrorLogged) {
+                this.appendLog('Model list unavailable', 'warn');
+                this.flags.modelsErrorLogged = true;
+            }
+        }
+    }
+
+    renderModels(container, models) {
+        container.innerHTML = '';
+
+        if (!models || models.length === 0) {
+            container.innerHTML = '<div class="empty-state">No ML models configured yet.</div>';
+            return;
+        }
+
+        models.forEach(model => {
+            const id = model.id || model.ID || model.model_id || model.name || 'model';
+            const state = (model.state || model.State || 'UNKNOWN').toUpperCase();
+            const stateClass = (model.state_class || model.StateClass || 'neutral').toLowerCase();
+
+            const row = document.createElement('div');
+            row.className = 'model-row';
+            row.dataset.model = id;
+            row.dataset.currentState = state;
+
+            const name = document.createElement('span');
+            name.className = 'model-name';
+            name.textContent = model.name || model.Name || id;
+
+            const pill = document.createElement('span');
+            pill.className = `pill pill-${stateClass}`;
+            pill.textContent = state;
+
+            row.appendChild(name);
+            row.appendChild(pill);
+            row.addEventListener('click', () => this.toggleModel(row));
+
+            container.appendChild(row);
+        });
+    }
+
+    async updateChips() {
+        const powerChip = document.getElementById('app-power-chip');
+        const modeChip = document.getElementById('app-mode-chip');
+
+        if (!powerChip && !modeChip) {
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/appchips');
+            if (!response.ok) {
+                throw new Error('Unable to fetch app chips');
+            }
+
+            const chips = await response.json();
+            this.flags.chipsErrorLogged = false;
+
+            if (powerChip && typeof chips.power_pct === 'number') {
+                this.state.powerPct = chips.power_pct;
+                powerChip.textContent = `PWR ${chips.power_pct}%`;
+                powerChip.classList.toggle('chip-warning', chips.power_pct <= 25);
+            }
+
+            if (chips.mode) {
+                this.state.mode = chips.mode.toUpperCase();
+            }
+
+            this.updateModeDisplay();
+        } catch (err) {
+            if (!this.flags.chipsErrorLogged) {
+                this.appendLog('Power telemetry unavailable', 'warn');
+                this.flags.chipsErrorLogged = true;
+            }
+        }
     }
 
     // Video Controls
@@ -258,12 +548,14 @@ class MissionControl {
             this.state.recording = !this.state.recording;
             this.showToast(data.message || `Recording ${action}ed`, 'success');
             
-            // Update button text via HTMX or manually
             const recordBtn = document.getElementById('btn-record');
             if (recordBtn) {
-                recordBtn.textContent = this.state.recording ? 'Stop Recording' : 'Start Recording';
-                recordBtn.classList.toggle('danger', this.state.recording);
+                const text = recordBtn.querySelector('.btn-text') || recordBtn;
+                text.textContent = this.state.recording ? 'Stop Recording' : 'Start Recording';
+                recordBtn.classList.toggle('recording', this.state.recording);
             }
+
+            this.updateModeDisplay();
         })
         .catch(err => {
             this.showToast('Failed to toggle recording: ' + err.message, 'error');
@@ -400,6 +692,7 @@ class MissionControl {
         .then(html => {
             // HTMX will handle the swap automatically
             this.showToast(`Model ${nextState.toLowerCase()}`, 'success');
+            this.updateModels();
         })
         .catch(err => {
             this.showToast('Failed to toggle model: ' + err.message, 'error');
@@ -446,11 +739,100 @@ class MissionControl {
         inspect.style.top = rect.top + 'px';
     }
 
+    // Theme Controls
+    toggleTheme() {
+        const nextTheme = this.state.theme === 'light' ? 'dark' : 'light';
+        this.applyTheme(nextTheme);
+    }
+
+    applyTheme(theme, persist = true) {
+        if (!theme) {
+            return;
+        }
+
+        document.documentElement.setAttribute('data-theme', theme);
+        this.state.theme = theme;
+
+        if (persist) {
+            try {
+                localStorage.setItem(this.themeStorageKey, theme);
+            } catch (err) {
+                // Storage might be disabled; ignore
+            }
+        }
+
+        this.updateThemeToggle();
+    }
+
+    updateThemeToggle() {
+        const toggle = document.getElementById('theme-toggle');
+        if (!toggle) {
+            return;
+        }
+
+        const currentTheme = this.state.theme || document.documentElement.getAttribute('data-theme') || 'dark';
+        const isLight = currentTheme === 'light';
+
+        toggle.setAttribute('aria-pressed', isLight.toString());
+        toggle.dataset.theme = currentTheme;
+
+        const icon = toggle.querySelector('.theme-toggle-icon');
+        const label = toggle.querySelector('.theme-toggle-label');
+
+        if (icon) {
+            icon.textContent = isLight ? '☀️' : '🌙';
+        }
+
+        if (label) {
+            label.textContent = isLight ? 'Light' : 'Dark';
+        }
+    }
+
+    getStoredTheme() {
+        try {
+            return localStorage.getItem(this.themeStorageKey);
+        } catch (err) {
+            return null;
+        }
+    }
+
+    setupThemePreferenceWatcher() {
+        if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+            return;
+        }
+
+        this.systemThemeQuery = window.matchMedia('(prefers-color-scheme: light)');
+        this.systemThemeListener = (event) => this.handleSystemThemeChange(event);
+
+        if (typeof this.systemThemeQuery.addEventListener === 'function') {
+            this.systemThemeQuery.addEventListener('change', this.systemThemeListener);
+        } else if (typeof this.systemThemeQuery.addListener === 'function') {
+            this.systemThemeQuery.addListener(this.systemThemeListener);
+        }
+    }
+
+    handleSystemThemeChange(event) {
+        if (this.getStoredTheme()) {
+            return;
+        }
+
+        const nextTheme = event.matches ? 'light' : 'dark';
+        this.applyTheme(nextTheme, false);
+    }
+
     // UI Updates
     updateModeDisplay() {
         const modeChip = document.getElementById('app-mode-chip');
-        if (modeChip) {
-            modeChip.textContent = this.state.mode;
+        if (!modeChip) {
+            return;
+        }
+
+        if (this.state.recording) {
+            modeChip.textContent = 'REC';
+            modeChip.classList.add('chip-recording');
+        } else {
+            modeChip.textContent = this.state.mode || 'IDLE';
+            modeChip.classList.remove('chip-recording');
         }
     }
 
@@ -491,6 +873,38 @@ class MissionControl {
     handleHTMXError(event) {
         const error = event.detail.error;
         this.showToast('Request failed: ' + error.message, 'error');
+        this.appendLog('HTMX error: ' + error.message, 'error');
+    }
+
+    appendLog(message, level = 'info') {
+        if (!message || !this.logContainer) {
+            return;
+        }
+
+        const placeholder = this.logContainer.querySelector('.log-entry.muted');
+        if (placeholder) {
+            placeholder.remove();
+        }
+
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${level}`;
+
+        const timeEl = document.createElement('time');
+        timeEl.textContent = new Date().toLocaleTimeString();
+
+        const messageEl = document.createElement('span');
+        messageEl.className = 'log-entry-message';
+        messageEl.textContent = message;
+
+        entry.appendChild(timeEl);
+        entry.appendChild(messageEl);
+
+        this.logContainer.prepend(entry);
+
+        const maxEntries = 30;
+        while (this.logContainer.children.length > maxEntries) {
+            this.logContainer.removeChild(this.logContainer.lastChild);
+        }
     }
 
     // Rate Limiting
@@ -514,10 +928,6 @@ class MissionControl {
         };
     }
 }
-
-// Rate limiters for control commands
-const altitudeRateLimiter = new MissionControl().createRateLimiter();
-const rotationRateLimiter = new MissionControl().createRateLimiter();
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {

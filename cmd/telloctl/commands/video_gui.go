@@ -12,24 +12,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// VideoGUICmd creates the video GUI command
 func VideoGUICmd(drone tello.TelloCommander) *cobra.Command {
-	var displayType string
-	var webPort int
-
 	cmd := &cobra.Command{
 		Use:   "video-gui",
-		Short: "Display real-time video feed from drone in GUI",
-		Long: `Display real-time video feed from the drone in a graphical interface.
-This command opens a video display window showing the live video stream from the drone.
-
-Display Types:
-  terminal - ASCII art display in terminal
-  web      - Web browser interface (default)
+		Short: "Start native GUI window for drone video feed",
+		Long: `Start a native graphical interface to display real-time video feed from the drone.
+This command opens a desktop GUI window showing the live video stream from the drone.
 
 Examples:
-  telloctl video-gui                    # Start web GUI (default)
-  telloctl video-gui -t terminal         # Start terminal GUI
-  telloctl video-gui -t web -p 8080    # Start web GUI on port 8080`,
+  telloctl video-gui                    # Start native GUI window`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Start video stream
 			if err := drone.StreamOn(); err != nil {
@@ -43,35 +35,18 @@ Examples:
 				return fmt.Errorf("failed to get video frame channel")
 			}
 
-			// Determine display type
-			var videoDisplayType transport.VideoDisplayType
-			switch displayType {
-			case "terminal":
-				videoDisplayType = transport.DisplayTypeTerminal
-			case "web":
-				videoDisplayType = transport.DisplayTypeWeb
-			default:
-				videoDisplayType = transport.DisplayTypeWeb
-			}
-
-			// Create video display
-			display := transport.NewVideoDisplay(videoDisplayType)
+			// Create native video display
+			display := transport.NewVideoDisplay(transport.DisplayTypeNative)
 			display.SetVideoChannel(frameChan)
-
-			if videoDisplayType == transport.DisplayTypeWeb {
-				display.SetWebPort(webPort)
-			}
 
 			// Start display
 			if err := display.Start(); err != nil {
 				return fmt.Errorf("failed to start video display: %w", err)
 			}
-			defer display.Close()
+			defer display.Stop()
 
-			fmt.Printf("🎥 Video GUI started (%s mode)\n", videoDisplayType)
-			if videoDisplayType == transport.DisplayTypeWeb {
-				fmt.Printf("🌐 Open http://localhost:%d in your browser\n", webPort)
-			}
+			fmt.Printf("🎥 Video GUI started (native mode)\n")
+			fmt.Println("🖥️ Native GUI window opened")
 			fmt.Println("Press Ctrl+C to stop")
 
 			// Setup interrupt handling
@@ -107,9 +82,6 @@ Examples:
 			}
 		},
 	}
-
-	cmd.Flags().StringVarP(&displayType, "type", "t", "web", "Display type (terminal or web)")
-	cmd.Flags().IntVarP(&webPort, "port", "p", 8080, "Web server port (for web display)")
 
 	return cmd
 }

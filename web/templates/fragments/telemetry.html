@@ -1,24 +1,29 @@
-<div class="telemetry-row">
-    <span class="telemetry-label">Altitude (m)</span>
-    <span class="telemetry-value" id="tl-altitude">{{.AltitudeM}}</span>
-</div>
-<div class="telemetry-row">
-    <span class="telemetry-label">Speed (m/s)</span>
-    <span class="telemetry-value" id="tl-speed">{{.SpeedMPS}}</span>
-</div>
-<div class="telemetry-row">
-    <span class="telemetry-label">Latitude (deg)</span>
-    <span class="telemetry-value" id="tl-lat">{{.LatDeg}}</span>
-</div>
-<div class="telemetry-row">
-    <span class="telemetry-label">Longitude (deg)</span>
-    <span class="telemetry-value" id="tl-lon">{{.LonDeg}}</span>
-</div>
-<div class="telemetry-row">
-    <span class="telemetry-label">Signal (%)</span>
-    <span class="telemetry-value" id="tl-signal">{{.SignalPct}}</span>
-</div>
-<div class="telemetry-row">
-    <span class="telemetry-label">Detections</span>
-    <span class="telemetry-value" id="tl-detections">{{.DetectionsCount}}</span>
+<div class="card-body telemetry-body" id="telemetry-body"
+     hx-get="/api/telemetry"
+     hx-trigger="every 1s"
+     hx-swap="outerHTML">
+    <div class="telemetry-row">
+        <span class="telemetry-label">Altitude (m)</span>
+        <span class="telemetry-value" id="tl-altitude">{{.AltitudeM}}</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">Speed (m/s)</span>
+        <span class="telemetry-value" id="tl-speed">{{.SpeedMPS}}</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">Latitude (deg)</span>
+        <span class="telemetry-value" id="tl-lat">{{.LatDeg}}</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">Longitude (deg)</span>
+        <span class="telemetry-value" id="tl-lon">{{.LonDeg}}</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">Signal (%)</span>
+        <span class="telemetry-value tone-{{.SignalTone}}" id="tl-signal">{{.SignalPct}}%</span>
+    </div>
+    <div class="telemetry-row">
+        <span class="telemetry-label">Detections</span>
+        <span class="telemetry-value tone-{{.DetectionsTone}}" id="tl-detections">{{.DetectionsCount}}</span>
+    </div>
 </div>

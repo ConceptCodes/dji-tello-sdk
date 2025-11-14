@@ -7,6 +7,7 @@ import (
 
 	"github.com/conceptcodes/dji-tello-sdk-go/cmd/telloctl/commands"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
 
@@ -46,9 +47,39 @@ func newSetCmd(drone tello.TelloCommander) *cobra.Command {
 }
 
 func main() {
-	drone, err := tello.Initialize()
+	rootCmd := &cobra.Command{
+		Use:   "telloctl",
+		Short: "CLI for controlling the DJI Tello drone",
+	}
+
+	// Create drone commander (without initialization)
+	commandClient, err := transport.NewCommandConnection()
 	if err != nil {
-		utils.Logger.Errorf("Error initializing Tello SDK: %v", err)
+		utils.Logger.Errorf("Error creating command connection: %v", err)
+		os.Exit(1)
+	}
+
+	commandQueue := tello.NewPriorityCommandQueue()
+	stateListener, err := transport.NewStateListener(":8890")
+	if err != nil {
+		utils.Logger.Errorf("Error creating state listener: %v", err)
+		os.Exit(1)
+	}
+
+	videoStreamListener, err := transport.NewVideoStreamListener(":11111")
+	if err != nil {
+		utils.Logger.Errorf("Error creating video stream listener: %v", err)
+		os.Exit(1)
+	}
+
+	drone := tello.NewTelloCommander(
+		commandClient,
+		commandQueue,
+		stateListener,
+		videoStreamListener,
+	)
+	if err != nil {
+		utils.Logger.Errorf("Error creating Tello commander: %v", err)
 		os.Exit(1)
 	}
 
@@ -59,11 +90,7 @@ func main() {
 		}
 	}()
 
-	rootCmd := &cobra.Command{
-		Use:   "telloctl",
-		Short: "CLI for controlling the DJI Tello drone",
-	}
-
+	// Add all commands
 	rootCmd.AddCommand(
 		newGetCmd(drone),
 		newSetCmd(drone),
@@ -83,6 +110,7 @@ func main() {
 		commands.StreamOffCmd(drone),
 		commands.StreamCmd(drone),
 		commands.VideoGUICmd(drone),
+		commands.WebCmd(drone),
 		commands.GamepadCmd(drone),
 		commands.MLCmd(),
 		commands.SafetyCmd,

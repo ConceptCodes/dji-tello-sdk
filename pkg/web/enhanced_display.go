@@ -33,13 +33,10 @@ func NewEnhancedVideoDisplay(commander tello.TelloCommander, mlResultChan <-chan
 func (evd *EnhancedVideoDisplay) StartEnhanced() error {
 	// Set up enhanced web routes
 	mux := http.NewServeMux()
-	evd.webServer.SetupRoutes(mux)
-
-	// Override video frame handler to work with our mux
-	// mux.HandleFunc("/video.jpg", evd.videoDisplay.GetVideoFrameHandler())
+	evd.webServer.SetupRoutesWithoutIndex(mux)
 
 	// Serve modern index page instead of basic one
-	mux.HandleFunc("/", evd.webServer.handleIndex)
+	mux.HandleFunc("/", evd.webServer.HandleIndex)
 
 	// Create HTTP server
 	server := &http.Server{

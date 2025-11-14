@@ -1,9 +1,30 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DRONE COMMAND - Mission Control System</title>
+    <title>DJI Tello - Mission Control System</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        (function() {
+            try {
+                const storageKey = 'mission-control-theme';
+                const storedTheme = localStorage.getItem(storageKey);
+                const docEl = document.documentElement;
+                if (storedTheme) {
+                    docEl.setAttribute('data-theme', storedTheme);
+                    return;
+                }
+                if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+                    docEl.setAttribute('data-theme', 'light');
+                }
+            } catch (err) {
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        })();
+    </script>
     <link rel="stylesheet" href="/static/css/main.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
@@ -11,15 +32,32 @@
     <!-- App Bar -->
     <header id="app-bar">
         <div class="app-title">
-            <div class="glyph-icon">⬢</div>
+            <div class="glyph-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <circle cx="12" cy="12" r="4" class="glyph-pulse"></circle>
+                </svg>
+            </div>
             <div>
-                <h1>DRONE COMMAND</h1>
+                <h1>DJI Tello</h1>
                 <div class="subtitle">Mission Control System</div>
             </div>
         </div>
-        <div class="app-chips">
-            <div class="chip" id="app-power-chip">PWR: --%</div>
-            <div class="chip" id="app-mode-chip">IDLE</div>
+        <div class="app-status">
+            <div class="chip-group">
+                <div class="chip chip-compact" id="app-power-chip">PWR --%</div>
+                <div class="chip chip-mode" id="app-mode-chip">IDLE</div>
+                <button class="chip chip-action theme-toggle" id="theme-toggle" type="button" aria-pressed="false">
+                    <span class="theme-toggle-icon" aria-hidden="true">🌙</span>
+                    <span class="theme-toggle-label">Dark</span>
+                </button>
+            </div>
+            <div class="connection-banner" id="connection-banner">
+                <span class="connection-state-chip" id="connection-state-label">Checking drone...</span>
+                <button class="chip chip-action" id="connect-drone-btn" type="button">
+                    Connect Drone
+                </button>
+            </div>
         </div>
     </header>
 
@@ -30,58 +68,38 @@
             <!-- Telemetry Card -->
             <div class="card" id="card-telemetry">
                 <div class="card-header">
-                    <span>✈️</span>
-                    <span>TELEMETRY</span>
+                    <div class="card-header-title">
+                        <span>✈️</span>
+                        <span>TELEMETRY</span>
+                    </div>
+                    <button type="button" class="collapse-toggle" data-target="telemetry-body" aria-expanded="true">−</button>
                 </div>
-                <div class="card-body" 
+                <div class="card-body telemetry-body" id="telemetry-body"
                      hx-get="/api/telemetry" 
                      hx-trigger="every 1s" 
                      hx-swap="outerHTML">
                     <!-- Telemetry content will be loaded here -->
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="telemetry-row"><span class="telemetry-label">Altitude</span><span class="telemetry-value">--</span></div>
+                    <div class="telemetry-row"><span class="telemetry-label">Speed</span><span class="telemetry-value">--</span></div>
+                    <div class="telemetry-row"><span class="telemetry-label">Latitude</span><span class="telemetry-value">--</span></div>
+                    <div class="telemetry-row"><span class="telemetry-label">Longitude</span><span class="telemetry-value">--</span></div>
+                    <div class="telemetry-row"><span class="telemetry-label">Signal</span><span class="telemetry-value">--</span></div>
+                    <div class="telemetry-row"><span class="telemetry-label">Detections</span><span class="telemetry-value">--</span></div>
                 </div>
             </div>
 
             <!-- ML Models Card -->
             <div class="card" id="card-models">
                 <div class="card-header">
-                    <span>💗</span>
-                    <span>ML MODELS</span>
+                    <div class="card-header-title">
+                        <span>💗</span>
+                        <span>ML MODELS</span>
+                    </div>
+                    <button type="button" class="collapse-toggle" data-target="models-body" aria-expanded="true">−</button>
                 </div>
-                <div class="card-body">
+                <div class="card-body" id="models-body">
                     <div class="models-list" id="models-list">
-                        <div class="model-row" id="model-object-detection" 
-                             data-model="object-detection" 
-                             data-current-state="ACTIVE"
-                             hx-post="/api/models/toggle"
-                             hx-target="closest .model-row"
-                             hx-swap="outerHTML">
-                            <span class="model-name">Object Detection</span>
-                            <span class="pill pill-ok">ACTIVE</span>
-                        </div>
-                        <div class="model-row" id="model-person-tracking" 
-                             data-model="person-tracking" 
-                             data-current-state="ACTIVE"
-                             hx-post="/api/models/toggle"
-                             hx-target="closest .model-row"
-                             hx-swap="outerHTML">
-                            <span class="model-name">Person Tracking</span>
-                            <span class="pill pill-ok">ACTIVE</span>
-                        </div>
-                        <div class="model-row" id="model-vehicle-recognition" 
-                             data-model="vehicle-recognition" 
-                             data-current-state="STANDBY"
-                             hx-post="/api/models/toggle"
-                             hx-target="closest .model-row"
-                             hx-swap="outerHTML">
-                            <span class="model-name">Vehicle Recognition</span>
-                            <span class="pill pill-neutral">STANDBY</span>
-                        </div>
+                        <div class="empty-state">No ML models configured yet.</div>
                     </div>
                 </div>
             </div>
@@ -137,6 +155,21 @@
                          hx-swap="innerHTML">
                         <!-- Detection boxes will be rendered here -->
                     </div>
+                    <div class="video-crosshair" aria-hidden="true">
+                        <span class="crosshair-line vertical"></span>
+                        <span class="crosshair-line horizontal"></span>
+                        <span class="crosshair-corner top-left"></span>
+                        <span class="crosshair-corner top-right"></span>
+                        <span class="crosshair-corner bottom-left"></span>
+                        <span class="crosshair-corner bottom-right"></span>
+                    </div>
+                </div>
+                <div class="video-meta">
+                    <div class="video-meta-left">
+                        <span>960 × 720 • 30 FPS</span>
+                        <span>Codec: H.264</span>
+                    </div>
+                    <span>Latency: -- ms</span>
                 </div>
             </div>
         </section>
@@ -146,35 +179,36 @@
             <!-- Flight Controls Card -->
             <div class="card" id="card-controls">
                 <div class="card-header">
-                    <span>🎮</span>
-                    <span>FLIGHT CONTROLS</span>
+                    <div class="card-header-title">
+                        <span>🎮</span>
+                        <span>FLIGHT CONTROLS</span>
+                    </div>
+                    <button type="button" class="collapse-toggle" data-target="controls-body" aria-expanded="true">−</button>
                 </div>
-                <div class="card-body">
-                    <button class="control-btn primary" id="btn-record"
-                            hx-post="/api/controls/record"
-                            hx-target="#btn-record"
-                            hx-swap="outerHTML">
-                        Start Recording
+                <div class="card-body" id="controls-body">
+                    <button class="control-btn primary" id="btn-record" type="button">
+                        <span class="btn-icon">🎥</span>
+                        <span class="btn-text">Start Recording</span>
                     </button>
                     
-                    <button class="control-btn danger" id="btn-rtl"
-                            hx-post="/api/controls/rtl"
-                            hx-confirm="Return to launch? This will land the drone at its starting position.">
-                        Return Home
+                    <button class="control-btn danger" id="btn-rtl" type="button">
+                        <span class="btn-icon">🏠</span>
+                        <span class="btn-text">Return Home</span>
                     </button>
                     
-                    <button class="control-btn" id="btn-waypoint">
-                        Set Waypoint
+                    <button class="control-btn ghost" id="btn-waypoint" type="button">
+                        <span class="btn-icon">📍</span>
+                        <span class="btn-text">Set Waypoint</span>
                     </button>
                     
                     <div class="control-groups">
                         <div class="control-group-label">ALTITUDE</div>
-                        <button class="control-btn" id="ctrl-altitude-up">↑</button>
-                        <button class="control-btn" id="ctrl-altitude-down">↓</button>
+                        <button class="control-pad-btn" id="ctrl-altitude-up" type="button">↑</button>
+                        <button class="control-pad-btn" id="ctrl-altitude-down" type="button">↓</button>
                         
                         <div class="control-group-label">ROTATION</div>
-                        <button class="control-btn" id="ctrl-rot-ccw">⟲</button>
-                        <button class="control-btn" id="ctrl-rot-cw">⟳</button>
+                        <button class="control-pad-btn" id="ctrl-rot-ccw" type="button">⟲</button>
+                        <button class="control-pad-btn" id="ctrl-rot-cw" type="button">⟳</button>
                     </div>
                 </div>
             </div>
@@ -182,18 +216,40 @@
             <!-- System Status Card -->
             <div class="card" id="card-status">
                 <div class="card-header">
-                    <span>⚙️</span>
-                    <span>SYSTEM STATUS</span>
+                    <div class="card-header-title">
+                        <span>⚙️</span>
+                        <span>SYSTEM STATUS</span>
+                    </div>
+                    <button type="button" class="collapse-toggle" data-target="status-body" aria-expanded="true">−</button>
                 </div>
-                <div class="card-body"
+                <div class="card-body status-body" id="status-body"
                      hx-get="/api/status"
                      hx-trigger="every 2s"
                      hx-swap="outerHTML">
                     <!-- Status content will be loaded here -->
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
-                    <div class="skeleton" style="height: 20px; margin: 8px 0;"></div>
+                    <div class="status-row"><span class="status-label">Camera</span><span class="pill pill-neutral">--</span></div>
+                    <div class="status-row"><span class="status-label">GPS</span><span class="pill pill-neutral">--</span></div>
+                    <div class="status-row"><span class="status-label">Compass</span><span class="pill pill-neutral">--</span></div>
+                    <div class="status-row"><span class="status-label">Battery</span><span class="pill pill-neutral">--</span></div>
+                </div>
+            </div>
+
+            <!-- Event Log Card -->
+            <div class="card" id="card-logs">
+                <div class="card-header">
+                    <div class="card-header-title">
+                        <span>📝</span>
+                        <span>EVENT LOG</span>
+                    </div>
+                    <button type="button" class="collapse-toggle" data-target="logs-body" aria-expanded="true">−</button>
+                </div>
+                <div class="card-body log-body" id="logs-body">
+                    <div class="log-list" id="event-log">
+                        <div class="log-entry muted">
+                            <time>--:--:--</time>
+                            <span class="log-entry-message">Log stream initialized…</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </aside>
