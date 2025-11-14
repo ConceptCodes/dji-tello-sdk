@@ -1,0 +1,14 @@
+{
+  "classes": [
+    "person",
+    "car",
+    "bicycle"
+  ],
+  "confidence": 0.5,
+  "input_size": [
+    640,
+    640
+  ],
+  "model": "yolov8n.onnx",
+  "nms_threshold": 0.4
+}

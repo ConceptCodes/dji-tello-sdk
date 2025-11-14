@@ -5,18 +5,18 @@ import (
 	"net"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/types"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
-	"github.com/conceptcodes/dji-tello-sdk-go/shared"
 )
 
 type StateListener struct {
 	server    *udp.UDPServer
-	stateChan chan *shared.TelloState
+	stateChan chan *types.State
 }
 
 func NewStateListener(listenAddr string) (*StateListener, error) {
 	sl := &StateListener{
-		stateChan: make(chan *shared.TelloState, 100), // Buffer for 100 states
+		stateChan: make(chan *types.State, 100), // Buffer for 100 states
 	}
 
 	server, err := udp.NewUDPServer(
@@ -60,7 +60,7 @@ func (sl *StateListener) Stop() {
 }
 
 // GetStateChannel returns a read-only channel for receiving telemetry states
-func (sl *StateListener) GetStateChannel() <-chan *shared.TelloState {
+func (sl *StateListener) GetStateChannel() <-chan *types.State {
 	return sl.stateChan
 }
 

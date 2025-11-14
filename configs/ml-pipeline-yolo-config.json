@@ -1,0 +1,38 @@
+{
+  "processors": [
+    {
+      "name": "yolo",
+      "type": "yolo",
+      "config": {
+        "model": "yolov8n_real.onnx",
+        "confidence": 0.5,
+        "nms_threshold": 0.4,
+        "input_size": [640, 640],
+        "classes": ["person", "car", "bicycle"]
+      }
+    }
+  ],
+  "pipeline": {
+    "max_concurrent_processors": 4,
+    "frame_buffer_size": 30,
+    "worker_pool_size": 2,
+    "enable_metrics": true,
+    "target_fps": 30
+  },
+  "overlay": {
+    "enabled": true,
+    "show_fps": true,
+    "show_detections": true,
+    "show_tracking": true,
+    "show_confidence": true,
+    "colors": {
+      "car": "#0000FF",
+      "default": "#00FF00",
+      "person": "#FF0000",
+      "bicycle": "#FFFF00"
+    },
+    "line_width": 2,
+    "font_size": 12,
+    "font_scale": 0.5
+  }
+}

@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/conceptcodes/dji-tello-sdk-go/shared"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/types"
 )
 
 func ParseInt(value string) (int, error) {
@@ -16,8 +16,8 @@ func ParseFloat(value string) (float64, error) {
 	return strconv.ParseFloat(value, 64)
 }
 
-func ParseState(data string) (*shared.TelloState, error) {
-	state := &shared.TelloState{}
+func ParseState(data string) (*types.State, error) {
+	state := &types.State{}
 
 	if data == "" {
 		return state, nil

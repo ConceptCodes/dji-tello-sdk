@@ -1,0 +1,40 @@
+{
+  "version": "1.0.0",
+  "level": "normal",
+  "altitude": {
+    "min_height": 20,
+    "max_height": 300,
+    "takeoff_height": 50
+  },
+  "velocity": {
+    "max_horizontal": 100,
+    "max_vertical": 80,
+    "max_yaw": 100
+  },
+  "battery": {
+    "warning_threshold": 30,
+    "critical_threshold": 20,
+    "emergency_threshold": 15,
+    "enable_auto_land": true,
+    "low_battery_action": "land"
+  },
+  "sensors": {
+    "min_tof_distance": 30,
+    "max_tilt_angle": 30,
+    "max_acceleration": 2.0,
+    "baro_pressure_delta": 5.0,
+    "sensor_failure_action": "land"
+  },
+  "emergency": {
+    "connection_timeout": 3000,
+    "sensor_failure_action": "land",
+    "enable_auto_land": true,
+    "low_battery_action": "land"
+  },
+  "behavioral": {
+    "enable_flips": true,
+    "min_flip_height": 100,
+    "max_flight_time": 600,
+    "max_command_rate": 10
+  }
+}

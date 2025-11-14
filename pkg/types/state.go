@@ -1,6 +1,7 @@
-package shared
+package types
 
-type TelloState struct {
+// State represents current telemetry state of the Tello drone
+type State struct {
 	Pitch int     `json:"pitch"` // Pitch angle of the drone in degrees
 	Roll  int     `json:"roll"`  // Roll angle of the drone in degrees
 	Yaw   int     `json:"yaw"`   // Yaw angle of the drone in degrees

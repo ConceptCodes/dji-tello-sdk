@@ -2,13 +2,58 @@ package safety
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/conceptcodes/dji-tello-sdk-go/configs"
+	"github.com/conceptcodes/dji-tello-sdk-go/internal/config"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
+
+var (
+	// ErrConfigNotFound indicates that no safety configuration file was discovered.
+	ErrConfigNotFound = errors.New("safety config not found")
+)
+
+// getUserConfigDir returns the user config directory path
+func getUserConfigDir() string {
+	if dir := os.Getenv("TELLO_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+
+	// Check standard user config directories
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	// Try ~/.config/tello/ first (following XDG Base Directory spec)
+	configDir := filepath.Join(home, ".config", "tello")
+	if _, err := os.Stat(configDir); err == nil {
+		return configDir
+	}
+
+	// Fallback to ~/.tello/
+	return filepath.Join(home, ".tello")
+}
+
+// getSystemConfigDir returns the system config directory path
+func getSystemConfigDir() string {
+	// Try /etc/tello/ first
+	if _, err := os.Stat("/etc/tello"); err == nil {
+		return "/etc/tello"
+	}
+
+	// Fallback to /etc/ for backward compatibility
+	if _, err := os.Stat("/etc"); err == nil {
+		return "/etc"
+	}
+
+	return ""
+}
 
 // ConfigLoader handles loading and validating safety configurations
 type ConfigLoader struct {
@@ -17,17 +62,14 @@ type ConfigLoader struct {
 
 // NewConfigLoader creates a new config loader with schema validation
 func NewConfigLoader() (*ConfigLoader, error) {
-	// Get the schema file path
-	schemaPath, err := getSchemaPath()
+	fallbacks, err := getSchemaFallbackPaths()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get schema path: %w", err)
+		return nil, err
 	}
 
-	// Compile the schema
-	compiler := jsonschema.NewCompiler()
-	schema, err := compiler.Compile(schemaPath)
+	schema, err := config.CompileSchema(configs.SafetySchema, fallbacks, "embedded://safety-schema.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile schema: %w", err)
+		return nil, fmt.Errorf("failed to compile safety schema: %w", err)
 	}
 
 	return &ConfigLoader{
@@ -48,25 +90,36 @@ func (cl *ConfigLoader) LoadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	return cl.loadConfigData(data, configPath)
+}
+
+func (cl *ConfigLoader) loadConfigData(data []byte, source string) (*Config, error) {
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
+		return nil, fmt.Errorf("failed to parse config data: %w", err)
 	}
 
-	// Validate the configuration against schema
 	if err := cl.validateJSONData(data); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
 
-	// Apply defaults for optional fields
 	cl.applyDefaults(&config)
 
-	utils.Logger.Infof("Successfully loaded safety configuration from: %s", configPath)
+	src := source
+	if src == "" {
+		src = "embedded safety-default"
+	}
+	utils.Logger.Infof("Successfully loaded safety configuration from: %s", src)
+
 	return &config, nil
 }
 
 // LoadDefaultConfig loads the default configuration
 func (cl *ConfigLoader) LoadDefaultConfig() (*Config, error) {
+	if len(configs.SafetyDefault) > 0 {
+		return cl.loadConfigData(configs.SafetyDefault, "embedded safety-default.json")
+	}
+
 	defaultPath, err := getDefaultConfigPath()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get default config path: %w", err)
@@ -89,32 +142,7 @@ func (cl *ConfigLoader) LoadPresetConfig(preset string) (*Config, error) {
 
 // validateJSONData validates JSON data against the schema
 func (cl *ConfigLoader) validateJSONData(data []byte) error {
-	// Create a temporary file for validation
-	tempFile := os.TempDir() + "/safety-config-validate.json"
-	if err := os.WriteFile(tempFile, data, 0o644); err != nil {
-		return fmt.Errorf("failed to write temp validation file: %w", err)
-	}
-	defer os.Remove(tempFile)
-
-	// Open the temp file for validation
-	f, err := os.Open(tempFile)
-	if err != nil {
-		return fmt.Errorf("failed to open temp validation file: %w", err)
-	}
-	defer f.Close()
-
-	// Unmarshal JSON data
-	instance, err := jsonschema.UnmarshalJSON(f)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal JSON for validation: %w", err)
-	}
-
-	// Validate against schema
-	if err := cl.schema.Validate(instance); err != nil {
-		return err
-	}
-
-	return nil
+	return config.ValidateJSON(cl.schema, data)
 }
 
 // SaveConfig saves a configuration to file with validation
@@ -243,26 +271,37 @@ func (cl *ConfigLoader) applyDefaults(config *Config) {
 	}
 }
 
-// getSchemaPath returns the path to the JSON schema file
-func getSchemaPath() (string, error) {
-	// Try to find the schema file relative to the current working directory
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
+// getSchemaFallbackPaths returns the ordered schema locations to check on disk.
+func getSchemaFallbackPaths() ([]string, error) {
+	var locations []string
+
+	if userConfigDir := getUserConfigDir(); userConfigDir != "" {
+		locations = append(locations,
+			filepath.Join(userConfigDir, "safety-schema.json"),
+			filepath.Join(userConfigDir, "schemas", "safety-schema.json"),
+		)
 	}
 
-	schemaPath := filepath.Join(wd, "configs", "schemas", "safety-schema.json")
-	if _, err := os.Stat(schemaPath); err == nil {
-		return schemaPath, nil
+	if systemConfigDir := getSystemConfigDir(); systemConfigDir != "" {
+		locations = append(locations,
+			filepath.Join(systemConfigDir, "safety-schema.json"),
+			filepath.Join(systemConfigDir, "schemas", "safety-schema.json"),
+		)
 	}
 
-	// Try relative to the package directory
-	pkgPath := filepath.Join(wd, "pkg", "safety", "..", "..", "configs", "schemas", "safety-schema.json")
-	if _, err := os.Stat(pkgPath); err == nil {
-		return pkgPath, nil
+	if wd, err := os.Getwd(); err == nil {
+		locations = append(locations,
+			filepath.Join(wd, "configs", "schemas", "safety-schema.json"),
+		)
+	} else {
+		return nil, err
 	}
 
-	return "", fmt.Errorf("safety schema file not found")
+	if len(locations) == 0 {
+		return nil, fmt.Errorf("no schema fallback paths available")
+	}
+
+	return locations, nil
 }
 
 // getDefaultConfigPath returns the path to the default configuration file
@@ -333,6 +372,110 @@ func ValidateConfigFile(configPath string) error {
 
 	_, err = loader.LoadConfig(configPath)
 	return err
+}
+
+// LoadAutoConfig discovers and loads the first available safety configuration file.
+// If no configuration file is found, it falls back to the embedded default config.
+// The returned path will be empty when the embedded default is used.
+func LoadAutoConfig() (*Config, string, error) {
+	loader, err := NewConfigLoader()
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create config loader: %w", err)
+	}
+
+	configPath, err := FindAutoConfigPath()
+	if err != nil {
+		if errors.Is(err, ErrConfigNotFound) {
+			config, derr := loader.LoadDefaultConfig()
+			if derr != nil {
+				return nil, "", derr
+			}
+			return config, "", nil
+		}
+		return nil, "", err
+	}
+
+	config, err := loader.LoadConfig(configPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return config, configPath, nil
+}
+
+// FindAutoConfigPath returns the discovered config file path following the order:
+//  1. config.json (or safety-config.json) in the current directory
+//  2. User/global config directories (TELLO_CONFIG_DIR, ~/.config/tello[/safety], ~/.tello[/safety])
+//  3. System directories (/etc/tello, /etc)
+//
+// If no file is found, ErrConfigNotFound is returned.
+func FindAutoConfigPath() (string, error) {
+	if path, err := findLocalSafetyConfig(); err != nil {
+		return "", err
+	} else if path != "" {
+		return path, nil
+	}
+
+	if path, err := findGlobalSafetyConfig(); err != nil {
+		return "", err
+	} else if path != "" {
+		return path, nil
+	}
+
+	return "", ErrConfigNotFound
+}
+
+func findLocalSafetyConfig() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	return findSafetyConfigInDir(wd)
+}
+
+func findGlobalSafetyConfig() (string, error) {
+	dirs := config.UniqueDirs(collectSafetyConfigDirs()...)
+	return config.FindConfigFile(safetyConfigFilenames, dirs)
+}
+
+func collectSafetyConfigDirs() []string {
+	var dirs []string
+
+	if envDir := os.Getenv("TELLO_CONFIG_DIR"); envDir != "" {
+		dirs = append(dirs, envDir, filepath.Join(envDir, "safety"))
+	}
+
+	if userDir := getUserConfigDir(); userDir != "" {
+		dirs = append(dirs,
+			userDir,
+			filepath.Join(userDir, "safety"),
+		)
+	}
+
+	if systemDir := getSystemConfigDir(); systemDir != "" {
+		dirs = append(dirs,
+			systemDir,
+			filepath.Join(systemDir, "tello"),
+			filepath.Join(systemDir, "tello", "safety"),
+		)
+	}
+
+	return dirs
+}
+
+var safetyConfigFilenames = []string{
+	"config.json",
+	"safety-config.json",
+	"safety.json",
+}
+
+func findSafetyConfigInDir(dir string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+
+	return config.FindConfigFile(safetyConfigFilenames, []string{dir})
 }
 
 // ConfigExists checks if a configuration file exists

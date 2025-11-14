@@ -1,0 +1,10 @@
+{
+  "confidence": 0.7,
+  "min_neighbors": 3,
+  "min_size": [
+    30,
+    30
+  ],
+  "scale_factor": 1.1,
+  "use_dnn": true
+}

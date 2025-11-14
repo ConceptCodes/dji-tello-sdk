@@ -3,7 +3,7 @@ package utils
 import (
 	"testing"
 
-	"github.com/conceptcodes/dji-tello-sdk-go/shared"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/types"
 )
 
 func TestParseInt(t *testing.T) {
@@ -82,13 +82,13 @@ func TestParseState(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected *shared.TelloState
+		expected *types.State
 		hasError bool
 	}{
 		{
 			name:  "Complete valid state",
 			input: "pitch:10;roll:-5;yaw:180;vgx:20;vgy:30;vgz:40;templ:20;temph:30;tof:300;h:100;bat:85;baro:1013.25;time:120;agx:0.1;agy:0.2;agz:0.3;",
-			expected: &shared.TelloState{
+			expected: &types.State{
 				Pitch: 10, Roll: -5, Yaw: 180,
 				Vgx: 20, Vgy: 30, Vgz: 40,
 				Templ: 20, Temph: 30,
@@ -101,7 +101,7 @@ func TestParseState(t *testing.T) {
 		{
 			name:  "Partial state",
 			input: "pitch:15;bat:90;time:200;",
-			expected: &shared.TelloState{
+			expected: &types.State{
 				Pitch: 15, Bat: 90, Time: 200,
 			},
 			hasError: false,
@@ -109,7 +109,7 @@ func TestParseState(t *testing.T) {
 		{
 			name:     "Empty input",
 			input:    "",
-			expected: &shared.TelloState{},
+			expected: &types.State{},
 			hasError: false,
 		},
 		{
@@ -133,7 +133,7 @@ func TestParseState(t *testing.T) {
 		{
 			name:  "Invalid numeric values",
 			input: "pitch:abc;roll:20;bat:xyz;",
-			expected: &shared.TelloState{
+			expected: &types.State{
 				Roll: 20, // Valid values should still be parsed
 			},
 			hasError: false, // Should not error, just skip invalid values
@@ -141,7 +141,7 @@ func TestParseState(t *testing.T) {
 		{
 			name:  "Unknown keys should be ignored",
 			input: "pitch:10;unknown:123;roll:20;",
-			expected: &shared.TelloState{
+			expected: &types.State{
 				Pitch: 10, Roll: 20,
 			},
 			hasError: false,
@@ -149,7 +149,7 @@ func TestParseState(t *testing.T) {
 		{
 			name:  "State with extra whitespace",
 			input: " pitch : 10 ; roll : 20 ; ",
-			expected: &shared.TelloState{
+			expected: &types.State{
 				Pitch: 10, Roll: 20,
 			},
 			hasError: false,

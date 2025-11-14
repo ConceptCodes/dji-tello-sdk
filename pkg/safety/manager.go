@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/types"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
-	"github.com/conceptcodes/dji-tello-sdk-go/shared"
 )
 
 // CommanderInterface defines the interface for drone commands (same as tello.TelloCommander)
@@ -69,7 +69,7 @@ type SafetyManager struct {
 	lastCommandTime time.Time
 
 	// Telemetry processing
-	stateChan       <-chan *shared.TelloState
+	stateChan       <-chan *types.State
 	telemetryWg     sync.WaitGroup
 	telemetryCtx    context.Context
 	telemetryCancel context.CancelFunc
@@ -103,7 +103,7 @@ func NewSafetyManager(commander interface{}, config *Config) *SafetyManager {
 }
 
 // StartTelemetryProcessing starts continuous telemetry processing from the state channel
-func (sm *SafetyManager) StartTelemetryProcessing(stateChan <-chan *shared.TelloState) {
+func (sm *SafetyManager) StartTelemetryProcessing(stateChan <-chan *types.State) {
 	sm.stateChan = stateChan
 	sm.telemetryCtx, sm.telemetryCancel = context.WithCancel(context.Background())
 
@@ -131,7 +131,7 @@ func (sm *SafetyManager) processTelemetry() {
 }
 
 // UpdateState updates the safety manager with current drone state
-func (sm *SafetyManager) UpdateState(state *shared.TelloState) {
+func (sm *SafetyManager) UpdateState(state *types.State) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 
@@ -715,7 +715,7 @@ func (sm *SafetyManager) validateRCCommand(a, b, c, d int) CommandValidationResu
 
 // Safety monitoring methods
 
-func (sm *SafetyManager) checkAltitudeSafety(state *shared.TelloState) {
+func (sm *SafetyManager) checkAltitudeSafety(state *types.State) {
 	// Check maximum altitude
 	if state.H > sm.config.Altitude.MaxHeight {
 		event := NewSafetyEvent(SafetyEventAltitude, SafetyEventLevelWarning,
@@ -737,7 +737,7 @@ func (sm *SafetyManager) checkAltitudeSafety(state *shared.TelloState) {
 	}
 }
 
-func (sm *SafetyManager) checkBatterySafety(state *shared.TelloState) {
+func (sm *SafetyManager) checkBatterySafety(state *types.State) {
 	battery := state.Bat
 
 	// Check emergency threshold
@@ -779,7 +779,7 @@ func (sm *SafetyManager) checkBatterySafety(state *shared.TelloState) {
 	}
 }
 
-func (sm *SafetyManager) checkSensorSafety(state *shared.TelloState) {
+func (sm *SafetyManager) checkSensorSafety(state *types.State) {
 	// Check TOF distance
 	if state.Tof > 0 && state.Tof < sm.config.Sensors.MinTOFDistance {
 		event := NewSafetyEvent(SafetyEventSensor, SafetyEventLevelWarning,
@@ -816,7 +816,7 @@ func (sm *SafetyManager) checkSensorSafety(state *shared.TelloState) {
 	}
 }
 
-func (sm *SafetyManager) checkBehavioralSafety(state *shared.TelloState) {
+func (sm *SafetyManager) checkBehavioralSafety(state *types.State) {
 	// Check flight time
 	if !sm.flightStartTime.IsZero() {
 		flightTime := time.Since(sm.flightStartTime).Seconds()
@@ -905,7 +905,7 @@ func (sm *SafetyManager) hasCriticalOrEmergencyEvents(events []SafetyEvent) bool
 	return false
 }
 
-func (sm *SafetyManager) getAttitudeAngles(state *shared.TelloState) (pitch, roll, yaw int) {
+func (sm *SafetyManager) getAttitudeAngles(state *types.State) (pitch, roll, yaw int) {
 	// This would need to be implemented based on how attitude is stored
 	// For now, return 0 as placeholder
 	return 0, 0, 0

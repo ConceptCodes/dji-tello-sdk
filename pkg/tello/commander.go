@@ -679,10 +679,10 @@ func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, er
 
 	commander := NewTelloCommander(commandClient, commandQueue, stateListener, videoStreamListener)
 
-	// Note: Safety manager wrapping should be done by the caller using the integration package
+	// Note: Safety manager wrapping should be done by the caller using the safety package
 	// This avoids circular imports between pkg/tello and pkg/safety
 	if options.SafetyEnabled {
-		utils.Logger.Infof("Safety enabled - wrap commander with integration.CreateSafetyManager")
+		utils.Logger.Infof("Safety enabled - wrap commander with safety.NewManager")
 		utils.Logger.Infof("Safety config: %s", getSafetyConfigName(options))
 	}
 

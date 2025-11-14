@@ -70,11 +70,13 @@ func TestNewTelloCommander(t *testing.T) {
 
 // Read Command Tests
 func TestGetSpeed(t *testing.T) {
+	// Create a mock command connection
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("speed?", "50")
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	speed, err := commander.GetSpeed()
@@ -98,6 +100,7 @@ func TestGetBatteryPercentage(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	battery, err := commander.GetBatteryPercentage()
@@ -116,6 +119,7 @@ func TestGetTime(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	time, err := commander.GetTime()
@@ -134,6 +138,7 @@ func TestGetHeight(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	height, err := commander.GetHeight()
@@ -152,6 +157,7 @@ func TestGetTemperature(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	temp, err := commander.GetTemperature()
@@ -170,6 +176,7 @@ func TestGetAttitude(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	pitch, roll, yaw, err := commander.GetAttitude()
@@ -188,6 +195,7 @@ func TestGetAttitudeInvalidFormat(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	_, _, _, err := commander.GetAttitude()
@@ -202,6 +210,7 @@ func TestGetBarometer(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	baro, err := commander.GetBarometer()
@@ -220,6 +229,7 @@ func TestGetAcceleration(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	agx, agy, agz, err := commander.GetAcceleration()
@@ -238,6 +248,7 @@ func TestGetAccelerationInvalidFormat(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	_, _, _, err := commander.GetAcceleration()
@@ -252,6 +263,7 @@ func TestGetTof(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	tof, err := commander.GetTof()
@@ -271,6 +283,7 @@ func TestInit(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	err := commander.Init()
@@ -384,7 +397,9 @@ func TestMovementCommands(t *testing.T) {
 }
 
 func TestMovementCommandsValidation(t *testing.T) {
-	commander := &telloCommander{}
+	commander := &telloCommander{
+		commandQueue: NewPriorityCommandQueue(),
+	}
 
 	// Test out of range values
 	tests := []struct {
@@ -516,6 +531,7 @@ func TestSendReadCommandError(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	_, err := commander.GetSpeed()
@@ -550,6 +566,7 @@ func TestSendReadCommandErrorResponse(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	_, err := commander.GetSpeed()
@@ -564,6 +581,7 @@ func TestSendCommandErrorResponse(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	err := commander.sendCommand("takeoff")
@@ -578,6 +596,7 @@ func TestSendCommandUnexpectedResponse(t *testing.T) {
 
 	commander := &telloCommander{
 		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
 	}
 
 	err := commander.sendCommand("takeoff")

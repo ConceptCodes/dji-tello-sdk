@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,7 +15,6 @@ import (
 
 // GamepadCmd creates the gamepad control command
 func GamepadCmd(drone tello.TelloCommander) *cobra.Command {
-	var configFile string
 	var preset string
 	var listGamepads bool
 
@@ -29,7 +29,7 @@ Supports Xbox, PlayStation, and generic USB controllers with customizable button
 			}
 
 			// Load configuration
-			config, err := loadGamepadConfig(configFile, preset)
+			config, err := loadGamepadConfig(preset, cmd.Flags().Changed("preset"))
 			if err != nil {
 				return fmt.Errorf("failed to load gamepad configuration: %w", err)
 			}
@@ -42,13 +42,8 @@ Supports Xbox, PlayStation, and generic USB controllers with customizable button
 			// Create gamepad handler
 			handler, err := gamepad.NewHandler(gamepad.HandlerOptions{
 				Config: config,
-				OnRCValues: func(rcValues gamepad.RCValues) {
-					if err := drone.SetRcControl(rcValues.A, rcValues.B, rcValues.C, rcValues.D); err != nil {
-						utils.Logger.Errorf("Failed to set RC control: %v", err)
-					}
-				},
-				OnDroneAction: func(action gamepad.DroneAction) {
-					handleDroneAction(drone, action)
+				OnCommand: func(command gamepad.Command) {
+					handleDroneCommand(drone, command)
 				},
 				OnError: func(err error) {
 					utils.Logger.Errorf("Gamepad error: %v", err)
@@ -86,21 +81,31 @@ Supports Xbox, PlayStation, and generic USB controllers with customizable button
 	}
 
 	// Add flags
-	cmd.Flags().StringVarP(&configFile, "config", "c", "", "Path to gamepad configuration file")
 	cmd.Flags().StringVarP(&preset, "preset", "p", "default", "Use preset configuration (default, xbox, playstation)")
 	cmd.Flags().BoolVarP(&listGamepads, "list", "l", false, "List available gamepads and exit")
 
 	return cmd
 }
 
-// loadGamepadConfig loads the gamepad configuration from file or preset
-func loadGamepadConfig(configFile, preset string) (*gamepad.Config, error) {
-	if configFile != "" {
-		// Load from file
-		return gamepad.LoadConfigFromFile(configFile)
+// loadGamepadConfig loads the gamepad configuration using auto-discovery when no preset override is supplied.
+func loadGamepadConfig(preset string, presetExplicit bool) (*gamepad.Config, error) {
+	if !presetExplicit {
+		config, source, err := gamepad.LoadAutoConfig()
+		if err == nil {
+			utils.Logger.Infof("Using gamepad configuration file: %s", source)
+			return config, nil
+		}
+		if err != nil && !errors.Is(err, gamepad.ErrConfigNotFound) {
+			return nil, fmt.Errorf("failed to load discovered config: %w", err)
+		}
+		if errors.Is(err, gamepad.ErrConfigNotFound) {
+			utils.Logger.Info("No config.json found locally or globally; falling back to preset")
+		}
+	} else {
+		utils.Logger.Infof("Preset '%s' explicitly selected; skipping auto config lookup", preset)
 	}
 
-	// Load preset
+	// Load preset fallback
 	presets := gamepad.GetPresetConfigs()
 	config, exists := presets[preset]
 	if !exists {
@@ -109,6 +114,30 @@ func loadGamepadConfig(configFile, preset string) (*gamepad.Config, error) {
 
 	utils.Logger.Infof("Using preset configuration: %s", preset)
 	return config, nil
+}
+
+// handleDroneCommand handles drone commands from the gamepad
+func handleDroneCommand(drone tello.TelloCommander, command gamepad.Command) {
+	switch command.Type {
+	case gamepad.CommandRC:
+		if rcValues, ok := command.Data.(gamepad.RCValues); ok {
+			if err := drone.SetRcControl(rcValues.A, rcValues.B, rcValues.C, rcValues.D); err != nil {
+				utils.Logger.Errorf("Failed to set RC control: %v", err)
+			}
+		} else {
+			utils.Logger.Errorf("Invalid RC command data type")
+		}
+
+	case gamepad.CommandAction:
+		if action, ok := command.Data.(gamepad.DroneAction); ok {
+			handleDroneAction(drone, action)
+		} else {
+			utils.Logger.Errorf("Invalid action command data type")
+		}
+
+	default:
+		utils.Logger.Warnf("Unknown command type: %s", command.Type)
+	}
 }
 
 // handleDroneAction handles drone actions triggered by gamepad buttons

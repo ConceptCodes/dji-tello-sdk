@@ -2,12 +2,20 @@ package gamepad
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
+	"github.com/conceptcodes/dji-tello-sdk-go/configs"
+	"github.com/conceptcodes/dji-tello-sdk-go/internal/config"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 	"github.com/santhosh-tekuri/jsonschema/v6"
+)
+
+var (
+	// ErrConfigNotFound indicates no matching config file was discovered during auto-detection.
+	ErrConfigNotFound = errors.New("gamepad config not found")
 )
 
 // ConfigLoader handles loading and validating gamepad configurations
@@ -17,22 +25,17 @@ type ConfigLoader struct {
 
 // NewConfigLoader creates a new config loader with schema validation
 func NewConfigLoader() (*ConfigLoader, error) {
-	// Get the schema file path
-	schemaPath, err := getSchemaPath()
+	schemaPaths, err := getSchemaFallbackPaths()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get schema path: %w", err)
+		return nil, err
 	}
 
-	// Compile the schema
-	compiler := jsonschema.NewCompiler()
-	schema, err := compiler.Compile(schemaPath)
+	schema, err := config.CompileSchema(configs.GamepadSchema, schemaPaths, "embedded://gamepad-schema.json")
 	if err != nil {
-		return nil, fmt.Errorf("failed to compile schema: %w", err)
+		return nil, fmt.Errorf("failed to compile gamepad schema: %w", err)
 	}
 
-	return &ConfigLoader{
-		schema: schema,
-	}, nil
+	return &ConfigLoader{schema: schema}, nil
 }
 
 // LoadConfig loads and validates a gamepad configuration from file
@@ -77,32 +80,7 @@ func (cl *ConfigLoader) LoadDefaultConfig() (*Config, error) {
 
 // validateJSONData validates JSON data against the schema
 func (cl *ConfigLoader) validateJSONData(data []byte) error {
-	// Create a temporary file for validation
-	tempFile := os.TempDir() + "/gamepad-config-validate.json"
-	if err := os.WriteFile(tempFile, data, 0o644); err != nil {
-		return fmt.Errorf("failed to write temp validation file: %w", err)
-	}
-	defer os.Remove(tempFile)
-
-	// Open the temp file for validation
-	f, err := os.Open(tempFile)
-	if err != nil {
-		return fmt.Errorf("failed to open temp validation file: %w", err)
-	}
-	defer f.Close()
-
-	// Unmarshal JSON data
-	instance, err := jsonschema.UnmarshalJSON(f)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal JSON for validation: %w", err)
-	}
-
-	// Validate against schema
-	if err := cl.schema.Validate(instance); err != nil {
-		return err
-	}
-
-	return nil
+	return config.ValidateJSON(cl.schema, data)
 }
 
 // SaveConfig saves a configuration to file with validation
@@ -209,26 +187,27 @@ func (cl *ConfigLoader) applyDefaults(config *Config) {
 	}
 }
 
-// getSchemaPath returns the path to the JSON schema file
-func getSchemaPath() (string, error) {
-	// Try to find the schema file relative to the current working directory
+// getSchemaFallbackPaths returns ordered candidate schema paths on disk.
+func getSchemaFallbackPaths() ([]string, error) {
 	wd, err := os.Getwd()
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	schemaPath := filepath.Join(wd, "configs", "gamepad-schema.json")
-	if _, err := os.Stat(schemaPath); err == nil {
-		return schemaPath, nil
+	var locations []string
+	locations = append(locations,
+		filepath.Join(wd, "configs", "gamepad-schema.json"),
+		filepath.Join(wd, "pkg", "gamepad", "..", "..", "configs", "gamepad-schema.json"),
+	)
+
+	if home, err := os.UserHomeDir(); err == nil {
+		locations = append(locations,
+			filepath.Join(home, ".config", "tello", "gamepad-schema.json"),
+			filepath.Join(home, ".tello", "gamepad-schema.json"),
+		)
 	}
 
-	// Try relative to the package directory
-	pkgPath := filepath.Join(wd, "pkg", "gamepad", "..", "..", "configs", "gamepad-schema.json")
-	if _, err := os.Stat(pkgPath); err == nil {
-		return pkgPath, nil
-	}
-
-	return "", fmt.Errorf("gamepad schema file not found")
+	return locations, nil
 }
 
 // getDefaultConfigPath returns the path to the default configuration file
@@ -283,4 +262,81 @@ func ValidateConfigFile(configPath string) error {
 
 	_, err = loader.LoadConfig(configPath)
 	return err
+}
+
+// LoadAutoConfig tries to load a configuration from local or global config paths.
+// It returns the loaded config, the source path, or ErrConfigNotFound when no file is discovered.
+func LoadAutoConfig() (*Config, string, error) {
+	configPath, err := FindAutoConfigPath()
+	if err != nil {
+		return nil, "", err
+	}
+
+	config, err := LoadConfigFromFile(configPath)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return config, configPath, nil
+}
+
+// FindAutoConfigPath locates a config.json file following the discovery order:
+//  1. Current working directory
+//  2. User/global config directories (TELLO_CONFIG_DIR, ~/.config/tello, ~/.tello and their gamepad subdirs)
+func FindAutoConfigPath() (string, error) {
+	if path, err := findLocalConfig(); err != nil {
+		return "", err
+	} else if path != "" {
+		return path, nil
+	}
+
+	if path, err := findGlobalConfig(); err != nil {
+		return "", err
+	} else if path != "" {
+		return path, nil
+	}
+
+	return "", ErrConfigNotFound
+}
+
+func findLocalConfig() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	return findConfigInDir(wd)
+}
+
+func findGlobalConfig() (string, error) {
+	dirs := config.UniqueDirs(collectGlobalConfigDirs()...)
+	return config.FindConfigFile(configFilenames, dirs)
+}
+
+func collectGlobalConfigDirs() []string {
+	var dirs []string
+	if dir := os.Getenv("TELLO_CONFIG_DIR"); dir != "" {
+		dirs = append(dirs, dir, filepath.Join(dir, "gamepad"))
+	}
+
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs,
+			filepath.Join(home, ".config", "tello"),
+			filepath.Join(home, ".config", "tello", "gamepad"),
+			filepath.Join(home, ".tello"),
+			filepath.Join(home, ".tello", "gamepad"),
+		)
+	}
+
+	return dirs
+}
+
+var configFilenames = []string{"config.json", "gamepad-config.json"}
+
+func findConfigInDir(dir string) (string, error) {
+	if dir == "" {
+		return "", nil
+	}
+
+	return config.FindConfigFile(configFilenames, []string{dir})
 }

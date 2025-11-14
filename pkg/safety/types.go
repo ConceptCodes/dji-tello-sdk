@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/conceptcodes/dji-tello-sdk-go/shared"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/types"
 )
 
 // SafetyLevel represents the safety configuration level
@@ -29,13 +29,13 @@ type SafetyEvent struct {
 
 // SafetyStatus represents the current safety status
 type SafetyStatus struct {
-	IsSafe        bool               `json:"is_safe"`
-	ActiveEvents  []SafetyEvent      `json:"active_events"`
-	LastEvent     *SafetyEvent       `json:"last_event,omitempty"`
-	ConfigLevel   SafetyLevel        `json:"config_level"`
-	SafetyEnabled bool               `json:"safety_enabled"`
-	EmergencyMode bool               `json:"emergency_mode"`
-	CurrentState  *shared.TelloState `json:"current_state,omitempty"`
+	IsSafe        bool          `json:"is_safe"`
+	ActiveEvents  []SafetyEvent `json:"active_events"`
+	LastEvent     *SafetyEvent  `json:"last_event,omitempty"`
+	ConfigLevel   SafetyLevel   `json:"config_level"`
+	SafetyEnabled bool          `json:"safety_enabled"`
+	EmergencyMode bool          `json:"emergency_mode"`
+	CurrentState  *types.State  `json:"current_state,omitempty"`
 }
 
 // AltitudeLimits defines altitude safety limits

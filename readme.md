@@ -374,13 +374,10 @@ telloctl ml init
 telloctl ml processors
 
 # Validate ML configuration
-telloctl ml validate --config /path/to/config.json
+telloctl ml validate configs/ml-pipeline-default.json
 
-# Start ML processing with default config
+# Start ML processing
 telloctl ml start
-
-# Start ML processing with custom config
-telloctl ml start --config /path/to/config.json
 
 # Monitor ML metrics
 telloctl ml metrics
@@ -558,15 +555,22 @@ telloctl video-gui -t terminal
 # List available gamepads
 telloctl gamepad --list
 
-# Start gamepad control with default configuration
+# Start gamepad control (automatically loads config.json when present)
 telloctl gamepad
-
-# Start gamepad control with custom configuration
-telloctl gamepad --config /path/to/config.json
 
 # Start gamepad control with preset (xbox, playstation, default)
 telloctl gamepad --preset xbox
 ```
+
+Gamepad configuration is discovered automatically in this order:
+
+1. `config.json` (or `gamepad-config.json`) in the current directory
+2. `config.json` inside `TELLO_CONFIG_DIR`, `~/.config/tello[/gamepad]`, or `~/.tello[/gamepad]`
+3. Built-in presets (default/xbox/playstation)
+
+No CLI flag is required—drop a config file in one of those locations and `telloctl gamepad` will pick it up.
+
+The same lookup order is used by the safety manager when you initialize the SDK, so a single `config.json` can drive both pilot safety limits and controller behavior without extra flags.
 
 ### Video Frame Structure
 
@@ -1012,6 +1016,256 @@ func main() {
     }
 }
 ```
+
+## Core Packages
+
+The SDK is organized around core packages that provide modular, reusable functionality:
+
+### pkg/tello
+
+**Main SDK interface and drone control**
+
+```go
+// Initialize a Tello client
+drone, err := tello.Initialize()
+if err != nil {
+    log.Fatal(err)
+}
+
+// Enter SDK mode
+if err := drone.Init(); err != nil {
+    log.Fatal(err)
+}
+
+// Basic flight control
+drone.TakeOff()
+drone.Forward(100)
+drone.Land()
+```
+
+**Key Features:**
+- `TelloCommander` interface for all drone operations
+- Priority command queue for responsive control
+- Automatic connection management
+- Telemetry and video streaming integration
+
+### pkg/transport
+
+**Low-level communication layer**
+
+```go
+// Direct UDP communication
+client, err := udp.NewClient("192.168.10.1:8889", "0.0.0.0:8890")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Send commands
+response, err := client.SendCommand("takeoff")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Listen for telemetry
+listener, err := transport.NewStateListener("0.0.0.0:8890")
+if err != nil {
+    log.Fatal(err)
+}
+
+stateChan := listener.GetStateChannel()
+for state := range stateChan {
+    fmt.Printf("Battery: %d%%, Height: %.1fcm\n", 
+        state.BatteryPercentage, state.Height)
+}
+```
+
+**Key Features:**
+- UDP client/server for command and state communication
+- Video stream handling with H.264 parsing
+- State listener for real-time telemetry
+- ML video integration pipeline
+
+### pkg/safety
+
+**Safety management and monitoring**
+
+```go
+// Wrap drone with safety manager
+baseDrone, err := tello.Initialize()
+if err != nil {
+    log.Fatal(err)
+}
+
+// Create safety manager with default config
+manager, err := safety.NewManager(baseDrone, safety.DefaultConfig())
+if err != nil {
+    log.Fatal(err)
+}
+
+// Or load from configuration file
+manager, err := safety.NewManagerFromConfig(baseDrone, "safety-config.json")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Use safety manager instead of raw drone
+if err := manager.TakeOff(); err != nil {
+    log.Fatal(err)
+}
+
+// Safety manager automatically handles:
+// - Low battery auto-land
+// - Connection timeout recovery
+// - RC limit enforcement
+// - Emergency procedures
+```
+
+**Key Features:**
+- Configurable safety limits and behaviors
+- Automatic emergency procedures
+- Telemetry monitoring and alerts
+- Factory pattern for easy initialization
+
+### pkg/ml
+
+**Machine learning pipeline for video analysis**
+
+```go
+// Load ML configuration
+config, err := ml.LoadConfigFromFile("ml-pipeline-config.json")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Create ML pipeline
+pipeline, err := ml.NewConcurrentPipeline(config)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Process video frames
+go func() {
+    for frame := range videoFrameChannel {
+        results, err := pipeline.ProcessFrame(frame)
+        if err != nil {
+            log.Printf("ML processing error: %v", err)
+            continue
+        }
+        
+        // Handle ML results
+        for _, result := range results {
+            switch r := result.(type) {
+            case *ml.DetectionResult:
+                fmt.Printf("Detected %d objects\n", len(r.Detections))
+            case *ml.GestureResult:
+                fmt.Printf("Gesture: %s\n", r.Gesture)
+            }
+        }
+    }
+}()
+```
+
+**Key Features:**
+- Concurrent frame processing pipeline
+- Pluggable processor architecture (YOLO, face recognition, etc.)
+- Real-time performance optimization
+- Result tracking and visualization
+
+### pkg/utils
+
+**Shared utilities and helpers**
+
+```go
+// Parse telemetry data
+state, err := utils.ParseState("pitch:1;roll:2;yaw:3;bat:85;")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Validate configuration
+if err := utils.ValidateJSON(schema, data); err != nil {
+    log.Fatal(err)
+}
+
+// Structured logging
+utils.Logger.Infof("Drone connected: %s", droneName)
+utils.Logger.Errorf("Command failed: %v", err)
+```
+
+**Key Features:**
+- Telemetry parsing and validation
+- JSON schema validation
+- Structured logging
+- Common helper functions
+
+### pkg/gamepad
+
+**Gamepad input handling and mapping**
+
+```go
+// Load gamepad configuration
+config, err := gamepad.LoadAutoConfig()
+if err != nil {
+    config = gamepad.DefaultConfig()
+}
+
+// Create mapper for converting events to commands
+mapper := gamepad.NewDefaultMapper(config)
+
+// Create handler (CLI usage)
+handler, err := gamepad.NewHandler(gamepad.HandlerOptions{
+    Config: config,
+    OnCommand: func(cmd gamepad.Command) {
+        // Handle abstract commands
+        switch cmd.Type {
+        case gamepad.CommandRC:
+            if rcValues, ok := cmd.Data.(gamepad.RCValues); ok {
+                drone.SetRcControl(rcValues.A, rcValues.B, rcValues.C, rcValues.D)
+            }
+        case gamepad.CommandAction:
+            if action, ok := cmd.Data.(gamepad.DroneAction); ok {
+                switch action {
+                case gamepad.ActionTakeoff:
+                    drone.TakeOff()
+                case gamepad.ActionLand:
+                    drone.Land()
+                }
+            }
+        }
+    },
+})
+
+// Web interface usage example
+func handleWebInput(webInput WebInput) {
+    // Convert web input to gamepad event
+    event := gamepad.Event{
+        Type:      gamepad.EventButtonPress,
+        Input:     "button_a",
+        Value:     1.0,
+        Timestamp: time.Now(),
+    }
+    
+    // Map to drone commands
+    commands, err := mapper.MapEvent(event)
+    if err != nil {
+        log.Printf("Mapping error: %v", err)
+        return
+    }
+    
+    // Execute commands
+    for _, cmd := range commands {
+        executeDroneCommand(cmd)
+    }
+}
+```
+
+**Key Features:**
+- Abstract `Event` and `Command` types for input handling
+- `Mapper` interface for converting events to drone commands
+- SDL2-based handler for physical gamepads
+- Configurable button and axis mappings
+- Preset configurations for Xbox/PlayStation controllers
+- Reusable by both CLI and web interfaces
 
 ## Development
 

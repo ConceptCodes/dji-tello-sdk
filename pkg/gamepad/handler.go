@@ -13,6 +13,7 @@ import (
 type Handler struct {
 	config    *Config
 	state     *GamepadState
+	mapper    Mapper
 	isRunning bool
 	stopChan  chan struct{}
 	mu        sync.RWMutex
@@ -22,9 +23,8 @@ type Handler struct {
 	joystick *sdl.Joystick
 
 	// Callbacks
-	onRCValues    func(RCValues)
-	onDroneAction func(DroneAction)
-	onError       func(error)
+	onCommand func(Command)
+	onError   func(error)
 
 	// Timing
 	updateInterval time.Duration
@@ -33,16 +33,22 @@ type Handler struct {
 
 // HandlerOptions contains options for creating a new Handler
 type HandlerOptions struct {
-	Config        *Config
-	OnRCValues    func(RCValues)
-	OnDroneAction func(DroneAction)
-	OnError       func(error)
+	Config    *Config
+	Mapper    Mapper
+	OnCommand func(Command)
+	OnError   func(error)
 }
 
 // NewHandler creates a new gamepad handler
 func NewHandler(opts HandlerOptions) (*Handler, error) {
 	if opts.Config == nil {
 		return nil, fmt.Errorf("config is required")
+	}
+
+	// Create mapper if not provided
+	mapper := opts.Mapper
+	if mapper == nil {
+		mapper = NewDefaultMapper(opts.Config)
 	}
 
 	// Initialize SDL2
@@ -61,10 +67,10 @@ func NewHandler(opts HandlerOptions) (*Handler, error) {
 	handler := &Handler{
 		config:         opts.Config,
 		state:          NewGamepadState(),
+		mapper:         mapper,
 		stopChan:       make(chan struct{}),
 		updateInterval: updateInterval,
-		onRCValues:     opts.OnRCValues,
-		onDroneAction:  opts.OnDroneAction,
+		onCommand:      opts.OnCommand,
 		onError:        opts.OnError,
 	}
 
@@ -193,15 +199,25 @@ func (h *Handler) processInput() {
 	// Process continuous axes (like joysticks)
 	h.processAxes()
 
+	// Generate commands from current state
+	commands, err := h.mapper.MapState(h.state)
+	if err != nil {
+		h.onError(fmt.Errorf("failed to map state to commands: %w", err))
+	} else {
+		for _, cmd := range commands {
+			h.triggerCommand(cmd)
+		}
+	}
+
 	h.state.LastUpdate = time.Now()
 	h.lastUpdate = time.Now()
 }
 
-// triggerAction calls the drone action callback
-func (h *Handler) triggerAction(action DroneAction) {
-	if h.onDroneAction != nil {
-		utils.Logger.Debugf("Triggering drone action: %s", action)
-		h.onDroneAction(action)
+// triggerCommand calls the command callback
+func (h *Handler) triggerCommand(command Command) {
+	if h.onCommand != nil {
+		utils.Logger.Debugf("Triggering command: %v", command)
+		h.onCommand(command)
 	}
 }
 
@@ -294,6 +310,23 @@ func (h *Handler) handleAxisEvent(event *sdl.ControllerAxisEvent) {
 	}
 
 	h.updateAxis(axisName, value)
+
+	// Generate event for mapper
+	gamepadEvent := Event{
+		Type:      EventAxisChange,
+		Input:     axisName,
+		Value:     float64(value),
+		Timestamp: time.Now(),
+	}
+
+	commands, err := h.mapper.MapEvent(gamepadEvent)
+	if err != nil {
+		h.onError(fmt.Errorf("failed to map axis event: %w", err))
+	} else {
+		for _, cmd := range commands {
+			h.triggerCommand(cmd)
+		}
+	}
 }
 
 // handleButtonEvent processes controller button presses
@@ -305,6 +338,33 @@ func (h *Handler) handleButtonEvent(event *sdl.ControllerButtonEvent) {
 
 	pressed := event.State == sdl.PRESSED
 	h.updateButton(buttonName, pressed)
+
+	// Generate event for mapper
+	var eventType EventType
+	var value float64
+	if pressed {
+		eventType = EventButtonPress
+		value = 1.0
+	} else {
+		eventType = EventButtonRelease
+		value = 0.0
+	}
+
+	gamepadEvent := Event{
+		Type:      eventType,
+		Input:     buttonName,
+		Value:     value,
+		Timestamp: time.Now(),
+	}
+
+	commands, err := h.mapper.MapEvent(gamepadEvent)
+	if err != nil {
+		h.onError(fmt.Errorf("failed to map button event: %w", err))
+	} else {
+		for _, cmd := range commands {
+			h.triggerCommand(cmd)
+		}
+	}
 }
 
 // handleDeviceEvent processes controller connection/disconnection

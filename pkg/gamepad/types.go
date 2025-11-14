@@ -163,7 +163,50 @@ const (
 	ActionStreamOff    DroneAction = "stream_off"
 )
 
-// InputEvent represents a gamepad input event
+// CommandType represents the type of command
+type CommandType string
+
+const (
+	CommandRC     CommandType = "rc"     // RC control values
+	CommandAction CommandType = "action" // Discrete drone action
+)
+
+// Command represents a high-level drone command
+type Command struct {
+	Type CommandType `json:"type"`
+	Data interface{} `json:"data"` // RCValues for rc, DroneAction for action
+}
+
+// Mapper defines the interface for converting gamepad events to drone commands
+type Mapper interface {
+	// MapEvent converts a gamepad event to one or more drone commands
+	MapEvent(event Event) ([]Command, error)
+
+	// MapState converts the current gamepad state to drone commands
+	MapState(state *GamepadState) ([]Command, error)
+
+	// UpdateConfig updates the mapper configuration
+	UpdateConfig(config *Config) error
+}
+
+// Event represents a normalized gamepad input event
+type Event struct {
+	Type      EventType `json:"type"`
+	Input     string    `json:"input"` // ButtonType or AxisType as string
+	Value     float64   `json:"value"` // Normalized value: 0.0/1.0 for buttons, -1.0 to 1.0 for axes
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// EventType represents the type of gamepad event
+type EventType string
+
+const (
+	EventButtonPress   EventType = "button_press"
+	EventButtonRelease EventType = "button_release"
+	EventAxisChange    EventType = "axis_change"
+)
+
+// InputEvent represents a gamepad input event (legacy, kept for compatibility)
 type InputEvent struct {
 	Type      string      // "button_press", "button_release", "axis_change"
 	Input     interface{} // ButtonType or AxisType
