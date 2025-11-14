@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/conceptcodes/dji-tello-sdk/safety-config",
+  "title": "DJI Tello Safety Configuration",
+  "description": "Configuration schema for safety management of DJI Tello drones",
+  "type": "object",
+  "required": ["version", "level", "altitude", "velocity", "battery", "sensors", "emergency", "behavioral"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Configuration version following semantic versioning"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["conservative", "normal", "aggressive", "indoor", "outdoor", "racing"],
+      "default": "normal",
+      "description": "Safety configuration level"
+    },
+    "altitude": {
+      "type": "object",
+      "required": ["min_height", "max_height", "takeoff_height"],
+      "properties": {
+        "min_height": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "default": 20,
+          "description": "Minimum safe altitude in centimeters"
+        },
+        "max_height": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 1000,
+          "default": 300,
+          "description": "Maximum safe altitude in centimeters"
+        },
+        "takeoff_height": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 200,
+          "default": 50,
+          "description": "Recommended takeoff altitude in centimeters"
+        }
+      },
+      "additionalProperties": false
+    },
+    "velocity": {
+      "type": "object",
+      "required": ["max_horizontal", "max_vertical", "max_yaw"],
+      "properties": {
+        "max_horizontal": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 100,
+          "default": 100,
+          "description": "Maximum horizontal velocity in cm/s"
+        },
+        "max_vertical": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 100,
+          "default": 80,
+          "description": "Maximum vertical velocity in cm/s"
+        },
+        "max_yaw": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 100,
+          "default": 100,
+          "description": "Maximum yaw rate in degrees/s"
+        }
+      },
+      "additionalProperties": false
+    },
+    "battery": {
+      "type": "object",
+      "required": ["warning_threshold", "critical_threshold", "emergency_threshold", "enable_auto_land", "low_battery_action"],
+      "properties": {
+        "warning_threshold": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 50,
+          "default": 30,
+          "description": "Battery warning threshold percentage"
+        },
+        "critical_threshold": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 40,
+          "default": 20,
+          "description": "Battery critical threshold percentage"
+        },
+        "emergency_threshold": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 30,
+          "default": 15,
+          "description": "Battery emergency threshold percentage"
+        },
+        "enable_auto_land": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic landing on low battery"
+        },
+        "low_battery_action": {
+          "type": "string",
+          "enum": ["land", "hover", "emergency"],
+          "default": "land",
+          "description": "Action to take on low battery"
+        }
+      },
+      "additionalProperties": false
+    },
+    "sensors": {
+      "type": "object",
+      "required": ["min_tof_distance", "max_tilt_angle", "max_acceleration", "baro_pressure_delta", "sensor_failure_action"],
+      "properties": {
+        "min_tof_distance": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 100,
+          "default": 30,
+          "description": "Minimum TOF distance in centimeters"
+        },
+        "max_tilt_angle": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 90,
+          "default": 30,
+          "description": "Maximum tilt angle in degrees"
+        },
+        "max_acceleration": {
+          "type": "number",
+          "minimum": 0.5,
+          "maximum": 5.0,
+          "default": 2.0,
+          "description": "Maximum acceleration in G-force"
+        },
+        "baro_pressure_delta": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 20.0,
+          "default": 5.0,
+          "description": "Barometric pressure change threshold in mbar"
+        },
+        "sensor_failure_action": {
+          "type": "string",
+          "enum": ["land", "hover", "emergency"],
+          "default": "land",
+          "description": "Action to take on sensor failure"
+        }
+      },
+      "additionalProperties": false
+    },
+    "emergency": {
+      "type": "object",
+      "required": ["connection_timeout", "sensor_failure_action", "enable_auto_land", "low_battery_action"],
+      "properties": {
+        "connection_timeout": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 10000,
+          "default": 3000,
+          "description": "Connection timeout in milliseconds"
+        },
+        "sensor_failure_action": {
+          "type": "string",
+          "enum": ["land", "hover", "emergency"],
+          "default": "land",
+          "description": "Action to take on sensor failure"
+        },
+        "enable_auto_land": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic landing on emergencies"
+        },
+        "low_battery_action": {
+          "type": "string",
+          "enum": ["land", "hover", "emergency"],
+          "default": "land",
+          "description": "Action to take on low battery emergency"
+        }
+      },
+      "additionalProperties": false
+    },
+    "behavioral": {
+      "type": "object",
+      "required": ["enable_flips", "min_flip_height", "max_flight_time", "max_command_rate"],
+      "properties": {
+        "enable_flips": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable flip maneuvers"
+        },
+        "min_flip_height": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 300,
+          "default": 100,
+          "description": "Minimum altitude for flips in centimeters"
+        },
+        "max_flight_time": {
+          "type": "integer",
+          "minimum": 60,
+          "maximum": 1800,
+          "default": 600,
+          "description": "Maximum continuous flight time in seconds"
+        },
+        "max_command_rate": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 10,
+          "description": "Maximum command rate per second"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

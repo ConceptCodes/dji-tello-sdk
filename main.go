@@ -14,6 +14,7 @@ func main() {
 		utils.Logger.Errorf("Error initializing Tello SDK: %v", err)
 		os.Exit(1)
 	}
+	defer drone.Shutdown()
 
 	utils.Logger.Info("SDK mode initialized successfully")
 

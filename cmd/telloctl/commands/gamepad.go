@@ -34,9 +34,9 @@ Supports Xbox, PlayStation, and generic USB controllers with customizable button
 				return fmt.Errorf("failed to load gamepad configuration: %w", err)
 			}
 
-			// Initialize drone
+			// Initialize drone (redundant now but kept for safety)
 			if err := drone.Init(); err != nil {
-				return fmt.Errorf("failed to initialize drone: %w", err)
+				return fmt.Errorf("SDK mode handshake failed: %w", err)
 			}
 
 			// Create gamepad handler

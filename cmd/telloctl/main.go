@@ -52,6 +52,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Add shutdown handling
+	defer func() {
+		if err := drone.Shutdown(); err != nil {
+			utils.Logger.Errorf("Error shutting down drone: %v", err)
+		}
+	}()
+
 	rootCmd := &cobra.Command{
 		Use:   "telloctl",
 		Short: "CLI for controlling the DJI Tello drone",
@@ -78,6 +85,7 @@ func main() {
 		commands.VideoGUICmd(drone),
 		commands.GamepadCmd(drone),
 		commands.MLCmd(),
+		commands.SafetyCmd,
 	)
 
 	if err := rootCmd.Execute(); err != nil {

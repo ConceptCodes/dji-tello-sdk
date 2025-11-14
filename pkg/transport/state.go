@@ -6,25 +6,32 @@ import (
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
+	"github.com/conceptcodes/dji-tello-sdk-go/shared"
 )
 
 type StateListener struct {
-	server *udp.UDPServer
+	server    *udp.UDPServer
+	stateChan chan *shared.TelloState
 }
 
 func NewStateListener(listenAddr string) (*StateListener, error) {
+	sl := &StateListener{
+		stateChan: make(chan *shared.TelloState, 100), // Buffer for 100 states
+	}
+
 	server, err := udp.NewUDPServer(
 		listenAddr,
-		udp.WithOnData(onStateData),
+		udp.WithOnData(func(data []byte, addr *net.UDPAddr) {
+			sl.onStateData(data, addr)
+		}),
 		udp.WithOnError(onStateError),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create UDP server for state listener on %s: %w", listenAddr, err)
 	}
 
-	return &StateListener{
-		server: server,
-	}, nil
+	sl.server = server
+	return sl, nil
 }
 
 // Start begins listening for state data.
@@ -44,15 +51,33 @@ func (sl *StateListener) Stop() {
 	} else {
 		utils.Logger.Warnf("Attempted to stop a nil state listener server")
 	}
+
+	// Close state channel
+	if sl.stateChan != nil {
+		close(sl.stateChan)
+		sl.stateChan = nil
+	}
 }
 
-func onStateData(data []byte, addr *net.UDPAddr) {
+// GetStateChannel returns a read-only channel for receiving telemetry states
+func (sl *StateListener) GetStateChannel() <-chan *shared.TelloState {
+	return sl.stateChan
+}
+
+func (sl *StateListener) onStateData(data []byte, addr *net.UDPAddr) {
 	state, err := utils.ParseState(string(data))
 	if err != nil {
 		utils.Logger.Warnf("Error parsing state data from %s: %v. Data: %s", addr.String(), err, string(data))
 		return
 	}
-	utils.Logger.Debugf("Received Tello State from %s: %+v", addr.String(), state)
+
+	// Send state to channel (non-blocking)
+	select {
+	case sl.stateChan <- state:
+		utils.Logger.Debugf("State sent to channel from %s: %+v", addr.String(), state)
+	default:
+		utils.Logger.Warnf("State channel full, dropping state from %s", addr.String())
+	}
 }
 
 func onStateError(err error) {

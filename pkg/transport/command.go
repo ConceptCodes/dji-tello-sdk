@@ -2,6 +2,7 @@ package transport
 
 import (
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
@@ -18,6 +19,7 @@ type UDPClientInterface interface {
 
 type CommandConnection struct {
 	client UDPClientInterface
+	mutex  sync.Mutex
 }
 
 func NewCommandConnection() (*CommandConnection, error) {
@@ -38,6 +40,9 @@ func NewCommandConnectionWithClient(client UDPClientInterface) *CommandConnectio
 }
 
 func (c *CommandConnection) SendCommand(command string) (string, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
 	if c.client == nil {
 		return "", fmt.Errorf("UDP client is not initialized")
 	}

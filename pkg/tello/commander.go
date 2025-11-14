@@ -1,8 +1,10 @@
 package tello
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
@@ -23,6 +25,9 @@ type telloCommander struct {
 	stateListener       *transport.StateListener
 	videoStreamListener *transport.VideoStreamListener
 	videoFrameCallback  VideoFrameCallback
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	wg                  sync.WaitGroup
 }
 
 // CommandConnection interface for command sending
@@ -73,6 +78,9 @@ type TelloCommander interface {
 	// Video Commands
 	SetVideoFrameCallback(callback VideoFrameCallback) // Set callback for video frames
 	GetVideoFrameChannel() <-chan transport.VideoFrame // Get read-only channel for video frames
+
+	// Lifecycle Commands
+	Shutdown() error // Gracefully shutdown all components and clean up resources
 }
 
 func NewTelloCommander(
@@ -81,28 +89,40 @@ func NewTelloCommander(
 	stateListener *transport.StateListener,
 	videoStreamListener *transport.VideoStreamListener,
 ) TelloCommander {
+	ctx, cancel := context.WithCancel(context.Background())
 	tc := &telloCommander{
 		commandClient:       commandClient,
 		commandQueue:        commandQueue,
 		stateListener:       stateListener,
 		videoStreamListener: videoStreamListener,
+		ctx:                 ctx,
+		cancel:              cancel,
 	}
+	tc.wg.Add(1)
 	go tc.processCommandQueue()
 	return tc
 }
 
 func (t *telloCommander) processCommandQueue() {
-	for {
-		command, ok := t.commandQueue.Dequeue()
-		if !ok {
-			continue
-		}
+	defer t.wg.Done()
 
-		err := t.sendCommand(command)
-		if err != nil {
-			// Only log at this layer, do not wrap or re-log elsewhere
-			utils.Logger.Errorf("Failed to process command '%s': %v", command, err)
-			continue
+	for {
+		select {
+		case <-t.ctx.Done():
+			utils.Logger.Info("Command queue processor shutting down...")
+			return
+		default:
+			command, ok := t.commandQueue.Dequeue()
+			if !ok {
+				continue
+			}
+
+			err := t.sendCommand(command)
+			if err != nil {
+				// Only log at this layer, do not wrap or re-log elsewhere
+				utils.Logger.Errorf("Failed to process command '%s': %v", command, err)
+				continue
+			}
 		}
 	}
 }
@@ -128,8 +148,13 @@ func (t *telloCommander) sendCommand(cmd string) error {
 }
 
 func (t *telloCommander) sendReadCommand(cmd string) (string, error) {
-	utils.Logger.Debugf("Sending read command: %s", cmd)
+	utils.Logger.Debugf("Enqueuing read command: %s", cmd)
 
+	// Enqueue with high priority
+	t.commandQueue.EnqueueRead(cmd)
+
+	// For now, send directly to maintain synchronous behavior
+	// TODO: Implement full async request-response pattern in queue
 	response, err := t.commandClient.SendCommand(cmd)
 	if err != nil {
 		return "", fmt.Errorf("send read command '%s' failed: %w", cmd, err)
@@ -542,6 +567,11 @@ func (t *telloCommander) GetVideoFrameChannel() <-chan transport.VideoFrame {
 
 // Initialize creates and configures a new TelloCommander with all necessary components
 func Initialize() (TelloCommander, error) {
+	return InitializeWithInit(true)
+}
+
+// InitializeWithInit creates and configures a new TelloCommander with optional initialization
+func InitializeWithInit(autoInit bool) (TelloCommander, error) {
 	utils.Logger.Info("Initializing Tello SDK...")
 
 	commandClient, err := transport.NewCommandConnection()
@@ -576,6 +606,142 @@ func Initialize() (TelloCommander, error) {
 		}
 	}()
 
+	if autoInit {
+		if err := commander.Init(); err != nil {
+			return nil, fmt.Errorf("SDK mode handshake failed: %w", err)
+		}
+		utils.Logger.Info("SDK mode initialized successfully")
+	}
+
 	utils.Logger.Info("Tello SDK initialized successfully")
 	return commander, nil
+}
+
+// InitializeOptions holds optional initialization parameters
+type InitializeOptions struct {
+	SafetyConfigPath string
+	SafetyPreset     string
+	SafetyEnabled    bool
+}
+
+// WithSafetyConfig specifies a custom safety configuration file
+func WithSafetyConfig(configPath string) func(*InitializeOptions) {
+	return func(opts *InitializeOptions) {
+		opts.SafetyConfigPath = configPath
+	}
+}
+
+// WithSafetyPreset specifies a safety preset (conservative, aggressive, indoor, outdoor)
+func WithSafetyPreset(preset string) func(*InitializeOptions) {
+	return func(opts *InitializeOptions) {
+		opts.SafetyPreset = preset
+	}
+}
+
+// WithSafetyDisabled disables safety manager entirely
+func WithSafetyDisabled() func(*InitializeOptions) {
+	return func(opts *InitializeOptions) {
+		opts.SafetyEnabled = false
+	}
+}
+
+// InitializeWithOptions creates and configures a new TelloCommander with safety options
+func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, error) {
+	// Apply default options
+	options := &InitializeOptions{
+		SafetyEnabled: true, // Enable safety by default
+	}
+
+	// Apply provided options
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	utils.Logger.Info("Initializing Tello SDK...")
+
+	commandClient, err := transport.NewCommandConnection()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create command connection: %w", err)
+	}
+
+	commandQueue := NewPriorityCommandQueue()
+
+	// Use standard Tello SDK ports
+	stateListener, err := transport.NewStateListener(":8890")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create state listener: %w", err)
+	}
+
+	videoStreamListener, err := transport.NewVideoStreamListener(":11111")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create video stream listener: %w", err)
+	}
+
+	commander := NewTelloCommander(commandClient, commandQueue, stateListener, videoStreamListener)
+
+	// Note: Safety manager wrapping should be done by the caller using the integration package
+	// This avoids circular imports between pkg/tello and pkg/safety
+	if options.SafetyEnabled {
+		utils.Logger.Infof("Safety enabled - wrap commander with integration.CreateSafetyManager")
+		utils.Logger.Infof("Safety config: %s", getSafetyConfigName(options))
+	}
+
+	go func() {
+		if err := stateListener.Start(); err != nil {
+			utils.Logger.Errorf("Failed to start state listener: %v", err)
+		}
+	}()
+
+	go func() {
+		if err := videoStreamListener.Start(); err != nil {
+			utils.Logger.Errorf("Failed to start video stream listener: %v", err)
+		}
+	}()
+
+	utils.Logger.Info("Tello SDK initialized successfully")
+	return commander, nil
+}
+
+// Shutdown gracefully shuts down all components and cleans up resources
+func (t *telloCommander) Shutdown() error {
+	utils.Logger.Info("Shutting down Tello commander...")
+
+	// Signal shutdown
+	t.cancel()
+
+	// Stop accepting new commands
+	// Note: PriorityCommandQueue doesn't have Shutdown method yet
+	// This will be addressed in the queue serialization task
+
+	// Wait for command processor to finish
+	t.wg.Wait()
+
+	// Stop listeners
+	if t.stateListener != nil {
+		t.stateListener.Stop()
+	}
+
+	if t.videoStreamListener != nil {
+		t.videoStreamListener.Stop()
+	}
+
+	// Close command connection
+	if t.commandClient != nil {
+		if err := t.commandClient.Close(); err != nil {
+			utils.Logger.Errorf("Error closing command connection: %v", err)
+		}
+	}
+
+	utils.Logger.Info("Tello commander shutdown complete")
+	return nil
+}
+
+func getSafetyConfigName(opts *InitializeOptions) string {
+	if opts.SafetyConfigPath != "" {
+		return opts.SafetyConfigPath
+	}
+	if opts.SafetyPreset != "" {
+		return opts.SafetyPreset
+	}
+	return "default"
 }
