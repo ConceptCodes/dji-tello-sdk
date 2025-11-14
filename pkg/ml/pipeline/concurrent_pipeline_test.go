@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/models"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -26,7 +27,10 @@ func TestNewConcurrentMLPipeline(t *testing.T) {
 		},
 	}
 
-	pipeline := NewConcurrentMLPipeline(config, processorConfigs)
+	// Create a mock model manager for testing
+	modelManager, _ := models.NewModelManager(t.TempDir())
+
+	pipeline := NewConcurrentMLPipeline(config, processorConfigs, modelManager)
 
 	assert.NotNil(t, pipeline)
 	assert.Equal(t, config, pipeline.config)
@@ -46,7 +50,10 @@ func TestConcurrentMLPipeline_StartStop(t *testing.T) {
 	// Use empty processor configs to avoid factory registration issues
 	processorConfigs := []ml.ProcessorConfig{}
 
-	pipeline := NewConcurrentMLPipeline(config, processorConfigs)
+	// Create a mock model manager for testing
+	modelManager, _ := models.NewModelManager(t.TempDir())
+
+	pipeline := NewConcurrentMLPipeline(config, processorConfigs, modelManager)
 
 	// Test start with no processors (should succeed)
 	err := pipeline.Start()
@@ -75,7 +82,8 @@ func TestConcurrentMLPipeline_ProcessFrame(t *testing.T) {
 
 	processorConfigs := []ml.ProcessorConfig{} // No processors for this test
 
-	pipeline := NewConcurrentMLPipeline(config, processorConfigs)
+	modelManager, _ := models.NewModelManager(t.TempDir())
+	pipeline := NewConcurrentMLPipeline(config, processorConfigs, modelManager)
 
 	// Test processing when not running
 	frame := ml.NewEnhancedVideoFrame([]byte("test"), time.Now(), 1)
@@ -107,7 +115,8 @@ func TestConcurrentMLPipeline_GetResults(t *testing.T) {
 
 	processorConfigs := []ml.ProcessorConfig{}
 
-	pipeline := NewConcurrentMLPipeline(config, processorConfigs)
+	modelManager, _ := models.NewModelManager(t.TempDir())
+	pipeline := NewConcurrentMLPipeline(config, processorConfigs, modelManager)
 
 	// Get results channel
 	resultsChan := pipeline.GetResults()
@@ -125,7 +134,8 @@ func TestConcurrentMLPipeline_GetMetrics(t *testing.T) {
 
 	processorConfigs := []ml.ProcessorConfig{}
 
-	pipeline := NewConcurrentMLPipeline(config, processorConfigs)
+	modelManager, _ := models.NewModelManager(t.TempDir())
+	pipeline := NewConcurrentMLPipeline(config, processorConfigs, modelManager)
 
 	// Get metrics
 	metrics := pipeline.GetMetrics()
@@ -159,7 +169,8 @@ func TestConcurrentMLPipeline_Integration(t *testing.T) {
 	// Use empty processor configs to avoid factory registration issues
 	processorConfigs := []ml.ProcessorConfig{}
 
-	pipeline := NewConcurrentMLPipeline(config, processorConfigs)
+	modelManager, _ := models.NewModelManager(t.TempDir())
+	pipeline := NewConcurrentMLPipeline(config, processorConfigs, modelManager)
 
 	// Start pipeline
 	err := pipeline.Start()

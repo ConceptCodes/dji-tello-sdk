@@ -38,6 +38,13 @@ func TestVideoFrame_ToEnhancedFrame(t *testing.T) {
 	assert.True(t, enhancedFrame.IsKeyFrame)
 	assert.False(t, enhancedFrame.Processed)
 	assert.NotNil(t, enhancedFrame.MLResults)
+	assert.Equal(t, defaultVideoFrameWidth, enhancedFrame.Width)
+	assert.Equal(t, defaultVideoFrameHeight, enhancedFrame.Height)
+	assert.Equal(t, 3, enhancedFrame.Channels)
+
+	img, ok := enhancedFrame.Image.(image.Image)
+	assert.True(t, ok)
+	assert.NotNil(t, img)
 }
 
 func TestNewMLVideoIntegration(t *testing.T) {

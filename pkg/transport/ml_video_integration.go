@@ -3,9 +3,11 @@ package transport
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/models"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/pipeline"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
@@ -41,8 +43,16 @@ func NewMLVideoIntegration(listenAddr string, mlConfig *ml.MLConfig) (*MLVideoIn
 		return nil, fmt.Errorf("failed to create video listener: %w", err)
 	}
 
+	// Create model manager
+	modelsDir := filepath.Join(".", "models")
+	modelManager, err := models.NewModelManager(modelsDir)
+	if err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to create model manager: %w", err)
+	}
+
 	// Create ML pipeline
-	mlPipeline := pipeline.NewConcurrentMLPipeline(&mlConfig.Pipeline, mlConfig.Processors)
+	mlPipeline := pipeline.NewConcurrentMLPipeline(&mlConfig.Pipeline, mlConfig.Processors, modelManager)
 
 	return &MLVideoIntegration{
 		videoListener: videoListener,

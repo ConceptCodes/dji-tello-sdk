@@ -1,89 +1,20 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "YOLO Configuration Schema",
-  "description": "Configuration schema for YOLO object detection processor",
   "type": "object",
   "properties": {
-    "model": {
-      "type": "string",
-      "description": "Path or name of the YOLO model file",
-      "minLength": 1
-    },
-    "confidence": {
-      "type": "number",
-      "description": "Confidence threshold for detections",
-      "minimum": 0,
-      "maximum": 1,
-      "default": 0.5
-    },
-    "nms_threshold": {
-      "type": "number",
-      "description": "Non-maximum suppression threshold",
-      "minimum": 0,
-      "maximum": 1,
-      "default": 0.45
-    },
+    "model": {"type": "string"},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "nms_threshold": {"type": "number", "minimum": 0, "maximum": 1},
     "input_size": {
       "type": "array",
-      "description": "Input image size [width, height]",
-      "items": {
-        "type": "integer",
-        "minimum": 32
-      },
+      "items": {"type": "integer"},
       "minItems": 2,
-      "maxItems": 2,
-      "default": [640, 640]
+      "maxItems": 2
     },
     "classes": {
       "type": "array",
-      "description": "List of class names for the model",
-      "items": {
-        "type": "string",
-        "minLength": 1
-      },
-      "minItems": 1
-    },
-    "device": {
-      "type": "string",
-      "description": "Device to run inference on",
-      "enum": ["cpu", "gpu", "auto"],
-      "default": "auto"
-    },
-    "batch_size": {
-      "type": "integer",
-      "description": "Batch size for inference",
-      "minimum": 1,
-      "maximum": 32,
-      "default": 1
-    },
-    "max_detections": {
-      "type": "integer",
-      "description": "Maximum number of detections per image",
-      "minimum": 1,
-      "maximum": 1000,
-      "default": 100
-    },
-    "augment": {
-      "type": "boolean",
-      "description": "Enable test-time augmentation",
-      "default": false
-    },
-    "agnostic": {
-      "type": "boolean",
-      "description": "Class-agnostic NMS",
-      "default": false
-    },
-    "half": {
-      "type": "boolean",
-      "description": "Use FP16 precision",
-      "default": false
-    },
-    "dnn": {
-      "type": "boolean",
-      "description": "Use OpenCV DNN for inference",
-      "default": false
+      "items": {"type": "string"}
     }
   },
-  "required": ["model", "confidence", "nms_threshold", "input_size", "classes"],
-  "additionalProperties": false
+  "required": ["model", "confidence", "nms_threshold", "input_size", "classes"]
 }

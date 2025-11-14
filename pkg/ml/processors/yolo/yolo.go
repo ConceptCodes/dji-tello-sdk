@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"sync"
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
@@ -23,6 +24,7 @@ type YOLOProcessor struct {
 	classes      []string
 	inputSize    image.Point
 	running      bool
+	mu           sync.Mutex // Thread safety for ONNX session
 }
 
 // YOLOConfig defines configuration for YOLO processor
@@ -66,22 +68,31 @@ func (yp *YOLOProcessor) Process(ctx context.Context, frame *ml.EnhancedVideoFra
 		return nil, fmt.Errorf("no image data available in frame")
 	}
 
-	// Preprocess frame directly into input tensor
+	// Preprocess frame directly into input tensor with thread safety
+	yp.mu.Lock()
 	err := yp.preprocessFrame(img)
+	yp.mu.Unlock()
+
 	if err != nil {
 		yp.UpdateMetrics(time.Since(startTime), false)
 		return nil, fmt.Errorf("preprocessing failed: %w", err)
 	}
 
-	// Run inference
+	// Run inference with thread safety
+	yp.mu.Lock()
 	err = yp.session.Run()
+	yp.mu.Unlock()
+
 	if err != nil {
 		yp.UpdateMetrics(time.Since(startTime), false)
 		return nil, fmt.Errorf("inference failed: %w", err)
 	}
 
-	// Postprocess results using the output tensor
+	// Postprocess results using the output tensor with thread safety
+	yp.mu.Lock()
 	detections, err := yp.postprocessResults(yp.outputTensor, image.Rect(0, 0, frame.Width, frame.Height))
+	yp.mu.Unlock()
+
 	if err != nil {
 		yp.UpdateMetrics(time.Since(startTime), false)
 		return nil, fmt.Errorf("postprocessing failed: %w", err)
@@ -235,8 +246,11 @@ func (yp *YOLOProcessor) ValidateConfig(config map[string]interface{}) error {
 
 // parseConfig parses configuration into YOLOConfig
 func (yp *YOLOProcessor) parseConfig(config map[string]interface{}) error {
+	// Handle both "model_path" and "model" keys for compatibility
 	if modelPath, ok := config["model_path"].(string); ok {
 		yp.config.ModelPath = modelPath
+	} else if model, ok := config["model"].(string); ok {
+		yp.config.ModelPath = model
 	}
 
 	if confidence, ok := config["confidence"].(float64); ok {

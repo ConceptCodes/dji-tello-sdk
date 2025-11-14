@@ -18,17 +18,17 @@ var modelRegistry = map[string]*ModelInfo{
 	"yolo-v8n": {
 		Name:         "yolo-v8n",
 		Version:      "8.0.0",
-		URL:          "https://raw.githubusercontent.com/ytdl-patched/youtube-dl/master/youtube_dl/__init__.py", // Test file
-		Size:         20585,                                                                                     // ~20KB test file
-		Checksum:     "",                                                                                        // Will be calculated after download
+		URL:          "file://./models/yolov8n_real.onnx", // Local test model for now
+		Size:         1020,                                // ~1KB test model
+		Checksum:     "",                                  // Will be calculated after download
 		Description:  "YOLOv8 Nano - Smallest and fastest model for real-time applications",
 		Format:       "onnx",
 		Architecture: "cnn",
 	},
 	"yolo-v8s": {
 		Name:         "yolo-v8s",
-		Version:      "8.0.0",
-		URL:          "https://github.com/ultralytics/ultralytics/releases/download/v8.0.0/yolov8s.onnx",
+		Version:      "8.3.0",
+		URL:          "https://github.com/ultralytics/ultralytics/releases/download/v8.3.0/yolov8s.onnx",
 		Size:         21889684, // ~21MB
 		Checksum:     "",       // Will be calculated after download
 		Description:  "YOLOv8 Small - Balanced model for good accuracy and speed",
@@ -37,8 +37,8 @@ var modelRegistry = map[string]*ModelInfo{
 	},
 	"yolo-v8m": {
 		Name:         "yolo-v8m",
-		Version:      "8.0.0",
-		URL:          "https://github.com/ultralytics/ultralytics/releases/download/v8.0.0/yolov8m.onnx",
+		Version:      "8.3.0",
+		URL:          "https://github.com/ultralytics/ultralytics/releases/download/v8.3.0/yolov8m.onnx",
 		Size:         49747008, // ~47MB
 		Checksum:     "",       // Will be calculated after download
 		Description:  "YOLOv8 Medium - High accuracy model for most applications",
@@ -47,8 +47,8 @@ var modelRegistry = map[string]*ModelInfo{
 	},
 	"yolo-v8l": {
 		Name:         "yolo-v8l",
-		Version:      "8.0.0",
-		URL:          "https://github.com/ultralytics/ultralytics/releases/download/v8.0.0/yolov8l.onnx",
+		Version:      "8.3.0",
+		URL:          "https://github.com/ultralytics/ultralytics/releases/download/v8.3.0/yolov8l.onnx",
 		Size:         83696625, // ~80MB
 		Checksum:     "",       // Will be calculated after download
 		Description:  "YOLOv8 Large - Highest accuracy model for offline processing",
@@ -279,6 +279,46 @@ func (mm *ModelManager) GetModel(modelName string) (*ModelInfo, error) {
 	}
 
 	return modelInfo, nil
+}
+
+// GetModelPath returns the file path for a model, resolving model names to paths
+func (mm *ModelManager) GetModelPath(modelName string) (string, error) {
+	// If it looks like a file path, return as-is
+	if filepath.Ext(modelName) != "" {
+		// Check if file exists
+		if _, err := os.Stat(modelName); err != nil {
+			return "", fmt.Errorf("model file not found: %s", modelName)
+		}
+		return modelName, nil
+	}
+
+	// Treat as model name and resolve to downloaded path
+	modelInfo, err := mm.GetModel(modelName)
+	if err != nil {
+		return "", err
+	}
+
+	if modelInfo.FilePath != "" {
+		// Check if file still exists
+		if _, err := os.Stat(modelInfo.FilePath); err != nil {
+			return "", fmt.Errorf("model file not found: %s", modelInfo.FilePath)
+		}
+		return modelInfo.FilePath, nil
+	}
+
+	// Check if model file exists in cache directory with .onnx extension
+	cachePath := filepath.Join(mm.cacheDir, modelName+".onnx")
+	if _, err := os.Stat(cachePath); err == nil {
+		return cachePath, nil
+	}
+
+	// Check if model file exists in cache directory with exact name
+	cachePath = filepath.Join(mm.cacheDir, modelName)
+	if _, err := os.Stat(cachePath); err == nil {
+		return cachePath, nil
+	}
+
+	return "", fmt.Errorf("model not downloaded: %s", modelName)
 }
 
 // ListModels returns all available models (including registry models)

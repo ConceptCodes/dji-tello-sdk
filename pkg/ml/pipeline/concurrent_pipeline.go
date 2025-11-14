@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/models"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/processors"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/processors/yolo"
 )
 
 // ConcurrentMLPipeline manages concurrent processing of video frames through multiple ML processors
@@ -18,6 +20,7 @@ type ConcurrentMLPipeline struct {
 	resultQueue       chan ml.MLResult
 	workers           map[string]*Worker
 	processorRegistry *processors.ProcessorRegistry
+	modelManager      *models.ModelManager
 
 	// Configuration
 	config           *ml.PipelineConfig
@@ -49,6 +52,7 @@ type PipelineMetrics struct {
 	fps            float64
 	latency        time.Duration
 	droppedFrames  int64
+	frameCount     int64
 	processorStats map[string]*ml.ProcessorStats
 	memoryUsage    int64
 	gpuUsage       float64
@@ -57,14 +61,19 @@ type PipelineMetrics struct {
 }
 
 // NewConcurrentMLPipeline creates a new concurrent ML pipeline
-func NewConcurrentMLPipeline(config *ml.PipelineConfig, processorConfigs []ml.ProcessorConfig) *ConcurrentMLPipeline {
+func NewConcurrentMLPipeline(config *ml.PipelineConfig, processorConfigs []ml.ProcessorConfig, modelManager *models.ModelManager) *ConcurrentMLPipeline {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create processor registry and register factories
+	registry := processors.NewProcessorRegistry()
+	registry.RegisterFactory(ml.ProcessorTypeYOLO, yolo.NewYOLOFactory())
 
 	return &ConcurrentMLPipeline{
 		frameQueue:        make(chan *ml.EnhancedVideoFrame, config.FrameBufferSize),
 		resultQueue:       make(chan ml.MLResult, config.FrameBufferSize),
 		workers:           make(map[string]*Worker),
-		processorRegistry: processors.NewProcessorRegistry(),
+		processorRegistry: registry,
+		modelManager:      modelManager,
 		config:            config,
 		processorConfigs:  processorConfigs,
 		ctx:               ctx,
@@ -190,14 +199,17 @@ func (p *ConcurrentMLPipeline) initializeProcessors() error {
 			continue
 		}
 
+		// Resolve model paths for YOLO processors
+		enhancedConfig := p.resolveModelPaths(procConfig.Config)
+
 		// Create processor
-		processor, err := p.processorRegistry.CreateProcessor(procConfig.Type, procConfig.Config)
+		processor, err := p.processorRegistry.CreateProcessor(procConfig.Type, enhancedConfig)
 		if err != nil {
 			return fmt.Errorf("failed to create processor %s: %w", procConfig.Name, err)
 		}
 
 		// Configure processor
-		if err := processor.Configure(procConfig.Config); err != nil {
+		if err := processor.Configure(enhancedConfig); err != nil {
 			return fmt.Errorf("failed to configure processor %s: %w", procConfig.Name, err)
 		}
 
@@ -211,6 +223,32 @@ func (p *ConcurrentMLPipeline) initializeProcessors() error {
 	}
 
 	return nil
+}
+
+// resolveModelPaths resolves model names to file paths in processor configuration
+func (p *ConcurrentMLPipeline) resolveModelPaths(config map[string]interface{}) map[string]interface{} {
+	enhancedConfig := make(map[string]interface{})
+
+	// Copy existing config
+	for k, v := range config {
+		enhancedConfig[k] = v
+	}
+
+	// Resolve model path if present
+	if modelName, ok := config["model"].(string); ok && p.modelManager != nil {
+		if modelPath, err := p.modelManager.GetModelPath(modelName); err == nil {
+			enhancedConfig["model_path"] = modelPath
+		}
+	}
+
+	// Also handle explicit model_path
+	if modelPath, ok := config["model_path"].(string); ok && p.modelManager != nil {
+		if resolvedPath, err := p.modelManager.GetModelPath(modelPath); err == nil {
+			enhancedConfig["model_path"] = resolvedPath
+		}
+	}
+
+	return enhancedConfig
 }
 
 // startWorkers creates and starts worker goroutines
@@ -257,7 +295,28 @@ func (p *ConcurrentMLPipeline) runWorker(processorName string, worker *Worker) {
 				continue
 			}
 
-			// Send result
+			// Store result back into the frame
+			if result != nil {
+				frame.AddResult(processorName, result)
+			}
+
+			// Increment frame counter for metrics
+			atomic.AddInt64(&p.metrics.frameCount, 1)
+
+			// Send result to result queue as well
+			select {
+			case p.resultQueue <- result:
+			case <-p.ctx.Done():
+				return
+			default:
+				// Result queue is full, drop result
+				atomic.AddInt64(&p.droppedFrames, 1)
+			}
+
+			// Increment frame counter for metrics
+			atomic.AddInt64(&p.metrics.frameCount, 1)
+
+			// Send result to result queue as well
 			select {
 			case p.resultQueue <- result:
 			case <-p.ctx.Done():
@@ -277,7 +336,7 @@ func (p *ConcurrentMLPipeline) metricsCollector() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	frameCount := int64(0)
+	lastFrameCount := int64(0)
 	lastTime := time.Now()
 
 	for {
@@ -290,9 +349,13 @@ func (p *ConcurrentMLPipeline) metricsCollector() {
 			timeDiff := currentTime.Sub(lastTime).Seconds()
 
 			if timeDiff > 0 {
+				// Get current frame count
+				currentFrameCount := atomic.LoadInt64(&p.metrics.frameCount)
+				framesInPeriod := currentFrameCount - lastFrameCount
+
 				// Calculate FPS
 				p.metrics.mu.Lock()
-				p.metrics.fps = float64(frameCount) / timeDiff
+				p.metrics.fps = float64(framesInPeriod) / timeDiff
 				p.metrics.latency = time.Since(lastTime)
 				p.metrics.droppedFrames = atomic.LoadInt64(&p.droppedFrames)
 				p.metrics.lastUpdate = currentTime
@@ -305,10 +368,11 @@ func (p *ConcurrentMLPipeline) metricsCollector() {
 				}
 
 				p.metrics.mu.Unlock()
-			}
 
-			frameCount = 0
-			lastTime = currentTime
+				// Update counters for next period
+				lastFrameCount = currentFrameCount
+				lastTime = currentTime
+			}
 		}
 	}
 }
@@ -319,6 +383,7 @@ func NewPipelineMetrics() *PipelineMetrics {
 		fps:            0,
 		latency:        0,
 		droppedFrames:  0,
+		frameCount:     0,
 		processorStats: make(map[string]*ml.ProcessorStats),
 		memoryUsage:    0,
 		gpuUsage:       0,

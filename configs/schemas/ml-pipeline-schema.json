@@ -4,6 +4,8 @@
   "properties": {
     "processors": {
       "type": "array",
+      "minItems": 0,
+      "default": [],
       "items": {
         "type": "object",
         "properties": {
@@ -11,9 +13,14 @@
           "type": {"type": "string", "enum": ["yolo", "face", "slam", "gesture", "segmentation", "custom"]},
           "enabled": {"type": "boolean"},
           "priority": {"type": "integer", "minimum": 0},
-          "config_file": {"type": "string"}
+          "config_file": {"type": "string"},
+          "config": {"type": "object"}
         },
-        "required": ["name", "type", "enabled", "priority"]
+        "required": ["name", "type"],
+        "anyOf": [
+          {"required": ["config"]},
+          {"required": ["config_file"]}
+        ]
       }
     },
     "pipeline": {
@@ -43,5 +50,5 @@
       "required": ["enabled", "show_fps", "show_detections", "show_tracking", "show_confidence"]
     }
   },
-  "required": ["processors", "pipeline", "overlay"]
+  "required": ["pipeline", "overlay"]
 }

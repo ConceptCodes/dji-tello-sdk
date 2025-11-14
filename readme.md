@@ -553,27 +553,6 @@ telloctl video-gui
 telloctl video-gui -t terminal
 ```
 
-#### ML Commands
-```bash
-# Initialize ML configuration
-telloctl ml init
-
-# List available ML processors
-telloctl ml processors
-
-# Validate ML configuration
-telloctl ml validate
-
-# Start ML processing
-telloctl ml start
-
-# Monitor ML metrics
-telloctl ml metrics
-
-# Test ML processors
-telloctl ml test --processor yolo
-```
-
 #### Gamepad Commands
 ```bash
 # List available gamepads
@@ -671,7 +650,7 @@ telloctl telemetry
 telloctl streamon
 telloctl streamoff
 
-# Monitor video stream
+# Monitor video stream with recording
 telloctl stream -d 30 -s output.mp4 -f mp4
 
 # Start video GUI
@@ -908,10 +887,13 @@ type TelloCommander interface {
 
 ### Basic Flight Control
 
+For a complete flight control example, see the Quick Start section above. Here's an extended example with telemetry monitoring:
+
 ```go
 package main
 
 import (
+    "fmt"
     "log"
     "time"
     "github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
@@ -926,17 +908,31 @@ func main() {
     drone.Init()
     drone.TakeOff()
     
-    // Fly a square pattern
+    // Fly a square pattern with telemetry
     drone.Forward(100)
+    logFlightStatus(drone)
+    
     drone.Right(100)
+    logFlightStatus(drone)
+    
     drone.Backward(100)
+    logFlightStatus(drone)
+    
     drone.Left(100)
+    logFlightStatus(drone)
     
     drone.Land()
 }
+
+func logFlightStatus(drone *tello.TelloCommander) {
+    battery, _ := drone.GetBatteryPercentage()
+    height, _ := drone.GetHeight()
+    fmt.Printf("Battery: %d%%, Height: %dcm\n", battery, height)
+    time.Sleep(1 * time.Second)
+}
 ```
 
-### Video Recording
+### Video Recording with Flight
 
 ```go
 package main
@@ -964,6 +960,7 @@ func main() {
     }
 
     recorder.StartRecording()
+    log.Println("Recording started...")
     
     // Record during flight
     drone.TakeOff()
@@ -974,10 +971,11 @@ func main() {
     
     recorder.StopRecording()
     drone.StreamOff()
+    log.Println("Recording saved to flight.mp4")
 }
 ```
 
-### Telemetry Monitoring
+### Real-time Telemetry Monitoring
 
 ```go
 package main
@@ -997,7 +995,7 @@ func main() {
 
     drone.Init()
 
-    // Monitor telemetry
+    // Monitor telemetry for 30 seconds
     ticker := time.NewTicker(1 * time.Second)
     defer ticker.Stop()
 
