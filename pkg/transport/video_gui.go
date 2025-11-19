@@ -20,8 +20,9 @@ import (
 type VideoDisplayType string
 
 const (
-	DisplayTypeWeb    VideoDisplayType = "web"
-	DisplayTypeNative VideoDisplayType = "native"
+	DisplayTypeWeb      VideoDisplayType = "web"
+	DisplayTypeNative   VideoDisplayType = "native"
+	DisplayTypeTerminal VideoDisplayType = "terminal"
 )
 
 // VideoDisplay handles real-time video display

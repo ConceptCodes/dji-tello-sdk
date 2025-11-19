@@ -11,6 +11,7 @@ type ProcessorType string
 const (
 	ProcessorTypeYOLO         ProcessorType = "yolo"
 	ProcessorTypeFace         ProcessorType = "face"
+	ProcessorTypeTracking     ProcessorType = "tracking"
 	ProcessorTypeSLAM         ProcessorType = "slam"
 	ProcessorTypeGesture      ProcessorType = "gesture"
 	ProcessorTypeSegmentation ProcessorType = "segmentation"

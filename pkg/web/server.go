@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
@@ -99,20 +100,37 @@ type ModelToggleRequest struct {
 	TargetState string `json:"target_state"`
 }
 
+// RecorderInterface defines interface for video recording
+type RecorderInterface interface {
+	StartRecording() error
+	StopRecording() error
+	IsRecording() bool
+}
+
+// MLPipelineInterface defines interface for ML pipeline interaction
+type MLPipelineInterface interface {
+	GetProcessorStates() []map[string]string
+}
+
 // WebServer handles web interface and API endpoints
 type WebServer struct {
 	commander     tello.TelloCommander
+	recorder      RecorderInterface
+	mlPipeline    MLPipelineInterface
 	mlResultChan  <-chan ml.MLResult
 	lastMLResults map[string]ml.MLResult
 	templates     *template.Template
 	csrfTokens    map[string]time.Time
 	connection    *ConnectionCoordinator
+	mu            sync.RWMutex
 }
 
 // NewWebServer creates a new web server instance
-func NewWebServer(commander tello.TelloCommander, mlResultChan <-chan ml.MLResult) *WebServer {
+func NewWebServer(commander tello.TelloCommander, recorder RecorderInterface, mlPipeline MLPipelineInterface, mlResultChan <-chan ml.MLResult) *WebServer {
 	ws := &WebServer{
 		commander:     commander,
+		recorder:      recorder,
+		mlPipeline:    mlPipeline,
 		mlResultChan:  mlResultChan,
 		lastMLResults: make(map[string]ml.MLResult),
 		csrfTokens:    make(map[string]time.Time),
@@ -138,7 +156,9 @@ func (ws *WebServer) loadTemplates() {
 // processMLResults processes ML results for web interface
 func (ws *WebServer) processMLResults() {
 	for result := range ws.mlResultChan {
+		ws.mu.Lock()
 		ws.lastMLResults[result.GetProcessorName()] = result
+		ws.mu.Unlock()
 	}
 }
 
@@ -546,11 +566,27 @@ func (ws *WebServer) handleRecordControl(w http.ResponseWriter, r *http.Request)
 	var message string
 	switch req.Action {
 	case "start":
-		message = "Recording started"
-		// Start recording logic here
+		if ws.recorder != nil {
+			if err := ws.recorder.StartRecording(); err != nil {
+				http.Error(w, fmt.Sprintf("Failed to start recording: %v", err), http.StatusInternalServerError)
+				return
+			}
+			message = "Recording started"
+		} else {
+			http.Error(w, "Recording not available", http.StatusServiceUnavailable)
+			return
+		}
 	case "stop":
-		message = "Recording stopped"
-		// Stop recording logic here
+		if ws.recorder != nil {
+			if err := ws.recorder.StopRecording(); err != nil {
+				http.Error(w, fmt.Sprintf("Failed to stop recording: %v", err), http.StatusInternalServerError)
+				return
+			}
+			message = "Recording stopped"
+		} else {
+			http.Error(w, "Recording not available", http.StatusServiceUnavailable)
+			return
+		}
 	default:
 		http.Error(w, "Invalid action", http.StatusBadRequest)
 		return
@@ -812,7 +848,23 @@ func (ws *WebServer) getAppChipsData() *AppChipsData {
 }
 
 func (ws *WebServer) getModelsData() []ModelState {
-	return []ModelState{}
+	if ws.mlPipeline == nil {
+		return []ModelState{}
+	}
+
+	states := ws.mlPipeline.GetProcessorStates()
+	var models []ModelState
+
+	for _, state := range states {
+		models = append(models, ModelState{
+			ID:         state["id"],
+			Name:       state["name"],
+			State:      state["state"],
+			StateClass: ws.getStateClass(state["state"]),
+		})
+	}
+
+	return models
 }
 
 func (ws *WebServer) getHUDData() *HUDData {
@@ -886,26 +938,29 @@ func toneFromCount(count int) string {
 }
 
 func (ws *WebServer) getDetections() []Detection {
+	ws.mu.RLock()
+	defer ws.mu.RUnlock()
+
 	var detections []Detection
 
 	// Process ML results to create detections
-	for processorName := range ws.lastMLResults {
-		// For now, create some mock detections based on result type
-		// This would be replaced with actual ML result processing
-		if processorName == "yolo" {
-			// Create mock detection for demonstration
-			detection := Detection{
-				ID:         fmt.Sprintf("%s-1", processorName),
-				Type:       "PERSON",
-				Confidence: 0.85,
-				Bbox: BoundingBox{
-					X: 0.3,
-					Y: 0.2,
-					W: 0.15,
-					H: 0.4,
-				},
+	for _, result := range ws.lastMLResults {
+		// Check for DetectionResult type
+		if detResult, ok := result.(*ml.DetectionResult); ok {
+			for i, det := range detResult.Detections {
+				detection := Detection{
+					ID:         fmt.Sprintf("%s-%d", result.GetProcessorName(), i),
+					Type:       det.ClassName,
+					Confidence: float64(det.Confidence),
+					Bbox: BoundingBox{
+						X: float64(det.Box.Min.X) / 960.0, // Normalize assuming 960x720
+						Y: float64(det.Box.Min.Y) / 720.0,
+						W: float64(det.Box.Dx()) / 960.0,
+						H: float64(det.Box.Dy()) / 720.0,
+					},
+				}
+				detections = append(detections, detection)
 			}
-			detections = append(detections, detection)
 		}
 	}
 

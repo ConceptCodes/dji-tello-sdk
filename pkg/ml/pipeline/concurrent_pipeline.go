@@ -10,6 +10,7 @@ import (
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/models"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/processors"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/processors/tracking"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/processors/yolo"
 )
 
@@ -67,6 +68,7 @@ func NewConcurrentMLPipeline(config *ml.PipelineConfig, processorConfigs []ml.Pr
 	// Create processor registry and register factories
 	registry := processors.NewProcessorRegistry()
 	registry.RegisterFactory(ml.ProcessorTypeYOLO, yolo.NewYOLOFactory())
+	registry.RegisterFactory(ml.ProcessorTypeTracking, tracking.NewTrackingFactory())
 
 	return &ConcurrentMLPipeline{
 		frameQueue:        make(chan *ml.EnhancedVideoFrame, config.FrameBufferSize),
@@ -80,6 +82,7 @@ func NewConcurrentMLPipeline(config *ml.PipelineConfig, processorConfigs []ml.Pr
 		cancel:            cancel,
 		metrics:           NewPipelineMetrics(),
 		running:           false,
+		adaptiveRate:      1, // Default to processing every frame
 	}
 }
 
@@ -145,18 +148,7 @@ func (p *ConcurrentMLPipeline) Stop() error {
 
 // ProcessFrame adds a frame to the processing queue (non-blocking)
 func (p *ConcurrentMLPipeline) ProcessFrame(frame *ml.EnhancedVideoFrame) error {
-	if !p.running {
-		return fmt.Errorf("pipeline is not running")
-	}
-
-	select {
-	case p.frameQueue <- frame:
-		return nil
-	default:
-		// Queue is full, drop frame to maintain real-time performance
-		atomic.AddInt64(&p.droppedFrames, 1)
-		return fmt.Errorf("frame queue is full, dropping frame")
-	}
+	return p.ProcessFrameOptimized(frame)
 }
 
 // GetResults returns a channel for reading ML results
@@ -266,59 +258,79 @@ func (p *ConcurrentMLPipeline) startWorkers() error {
 		p.workers[name] = worker
 
 		// Start worker
+		if err := worker.Start(p.ctx); err != nil {
+			return fmt.Errorf("failed to start worker for %s: %w", name, err)
+		}
+
+		// Start result collector for this worker
 		p.wg.Add(1)
-		go p.runWorker(name, worker)
+		go p.collectResults(name, worker)
 	}
+
+	// Start dispatcher
+	p.wg.Add(1)
+	go p.dispatcher()
 
 	return nil
 }
 
-// runWorker runs a worker goroutine for a specific processor
-func (p *ConcurrentMLPipeline) runWorker(processorName string, worker *Worker) {
+// dispatcher distributes frames to all workers (Fan-out)
+func (p *ConcurrentMLPipeline) dispatcher() {
 	defer p.wg.Done()
 
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
-
 		case frame, ok := <-p.frameQueue:
 			if !ok {
-				return // Channel closed
+				return
 			}
 
-			// Process frame
-			result, err := worker.Process(p.ctx, frame)
-			if err != nil {
-				// Log error but continue processing
-				fmt.Printf("Worker %s error: %v\n", processorName, err)
+			// Fan-out: Send frame to all workers
+			for _, worker := range p.workers {
+				select {
+				case worker.inputChan <- frame:
+					// Frame sent to worker
+				default:
+					// Worker queue full, skip this worker for this frame
+					// This prevents one slow worker from blocking the entire pipeline
+				}
+			}
+		}
+	}
+}
+
+// collectResults collects results from a worker and sends them to the result queue
+func (p *ConcurrentMLPipeline) collectResults(processorName string, worker *Worker) {
+	defer p.wg.Done()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case result, ok := <-worker.outputChan:
+			if !ok {
+				return
+			}
+
+			if result.Error != nil {
+				// Log error but continue
+				fmt.Printf("Worker %s error: %v\n", processorName, result.Error)
 				continue
 			}
 
 			// Store result back into the frame
-			if result != nil {
-				frame.AddResult(processorName, result)
+			if result.Frame != nil && result.Result != nil {
+				result.Frame.AddResult(processorName, result.Result)
 			}
 
 			// Increment frame counter for metrics
 			atomic.AddInt64(&p.metrics.frameCount, 1)
 
-			// Send result to result queue as well
+			// Send result to result queue
 			select {
-			case p.resultQueue <- result:
-			case <-p.ctx.Done():
-				return
-			default:
-				// Result queue is full, drop result
-				atomic.AddInt64(&p.droppedFrames, 1)
-			}
-
-			// Increment frame counter for metrics
-			atomic.AddInt64(&p.metrics.frameCount, 1)
-
-			// Send result to result queue as well
-			select {
-			case p.resultQueue <- result:
+			case p.resultQueue <- result.Result:
 			case <-p.ctx.Done():
 				return
 			default:
@@ -397,12 +409,10 @@ func (p *ConcurrentMLPipeline) ProcessFrameOptimized(frame *ml.EnhancedVideoFram
 		return fmt.Errorf("pipeline is not running")
 	}
 
-	// Adaptive rate control based on current FPS
-	currentFPS := p.getCurrentFPS()
-	targetFPS := float64(p.config.TargetFPS)
-
-	if currentFPS > targetFPS*1.1 { // 10% tolerance
-		// Skip frames to maintain target FPS
+	// Adaptive rate control
+	rate := atomic.LoadInt32(&p.adaptiveRate)
+	if rate > 1 && frame.SeqNum%int(rate) != 0 {
+		// Skip frame
 		return nil
 	}
 
@@ -410,10 +420,20 @@ func (p *ConcurrentMLPipeline) ProcessFrameOptimized(frame *ml.EnhancedVideoFram
 	reusedFrame := p.framePool.Get()
 	if reusedFrame != nil {
 		// Copy data to reused frame
-		reusedFrame.(*ml.EnhancedVideoFrame).Data = frame.Data
-		reusedFrame.(*ml.EnhancedVideoFrame).Timestamp = frame.Timestamp
-		reusedFrame.(*ml.EnhancedVideoFrame).SeqNum = frame.SeqNum
-		frame = reusedFrame.(*ml.EnhancedVideoFrame)
+		rf := reusedFrame.(*ml.EnhancedVideoFrame)
+		rf.Data = frame.Data
+		rf.Timestamp = frame.Timestamp
+		rf.SeqNum = frame.SeqNum
+		rf.IsKeyFrame = frame.IsKeyFrame
+		rf.Image = frame.Image
+		rf.Width = frame.Width
+		rf.Height = frame.Height
+		rf.Channels = frame.Channels
+		// Clear previous results
+		rf.MLResults = make(map[string]ml.MLResult)
+		rf.Processed = false
+
+		frame = rf
 	}
 
 	select {
@@ -533,18 +553,55 @@ func (p *ConcurrentMLPipeline) AdaptiveRateControl() {
 			var newRate int32
 			switch {
 			case currentFPS < targetFPS*0.7:
+				newRate = 1 // Process every frame (wait, if FPS is low, we should skip MORE frames?)
+				// If FPS is low (e.g. 10 vs 30), it means we are slow.
+				// To catch up, we should process FEWER frames (skip more).
+				// So rate should be higher (e.g. process every 2nd or 3rd frame).
+				newRate = 2
+			case currentFPS < targetFPS*0.5:
+				newRate = 3
+			case currentFPS >= targetFPS:
 				newRate = 1 // Process every frame
-			case currentFPS < targetFPS*0.9:
-				newRate = 2 // Process every 2nd frame
-			case currentFPS > targetFPS*1.2:
-				newRate = 3 // Process every 3rd frame
 			default:
-				newRate = 2 // Default to every 2nd frame
+				newRate = 1
+			}
+
+			// Correct logic:
+			// If currentFPS is LOW, it means processing is slow. We should increase rate (skip more).
+			// If currentFPS is HIGH (close to target), we can decrease rate (process more).
+
+			if currentFPS < targetFPS*0.5 {
+				newRate = 3 // Very slow, process every 3rd frame
+			} else if currentFPS < targetFPS*0.8 {
+				newRate = 2 // Slow, process every 2nd frame
+			} else {
+				newRate = 1 // Good, process every frame
 			}
 
 			atomic.StoreInt32(&p.adaptiveRate, newRate)
 		}
 	}
+}
+
+// GetProcessorStates returns the state of all processors
+func (p *ConcurrentMLPipeline) GetProcessorStates() []map[string]string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var states []map[string]string
+	for name, worker := range p.workers {
+		state := "STANDBY"
+		if worker.IsRunning() {
+			state = "ACTIVE"
+		}
+
+		states = append(states, map[string]string{
+			"id":    name,
+			"name":  name, // Could be more descriptive if available
+			"state": state,
+		})
+	}
+	return states
 }
 
 // GetPerformanceStats returns detailed performance statistics

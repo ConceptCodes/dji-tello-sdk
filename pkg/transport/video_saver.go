@@ -331,6 +331,28 @@ func (vr *VideoRecorder) processFrames() {
 	}
 }
 
+// IsRecording returns whether the recorder is currently recording to file
+func (vr *VideoRecorder) IsRecording() bool {
+	vr.mutex.Lock()
+	defer vr.mutex.Unlock()
+
+	if !vr.isRunning {
+		return false
+	}
+
+	switch vr.format {
+	case FormatH264:
+		if vr.saver != nil {
+			return vr.saver.IsRecording()
+		}
+	case FormatMP4:
+		if vr.mp4Recorder != nil {
+			return vr.mp4Recorder.IsRecording()
+		}
+	}
+	return false
+}
+
 // GetStats returns combined statistics from listener and saver
 func (vr *VideoRecorder) GetStats() map[string]interface{} {
 	var stats map[string]interface{}

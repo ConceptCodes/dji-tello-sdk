@@ -112,66 +112,84 @@ func (t *telloCommander) processCommandQueue() {
 			utils.Logger.Info("Command queue processor shutting down...")
 			return
 		default:
-			command, ok := t.commandQueue.Dequeue()
+			req, ok := t.commandQueue.Dequeue()
 			if !ok {
 				continue
 			}
 
-			err := t.sendCommand(command)
-			if err != nil {
-				// Only log at this layer, do not wrap or re-log elsewhere
-				utils.Logger.Errorf("Failed to process command '%s': %v", command, err)
-				continue
+			respStr, err := t.sendCommand(req.Command)
+
+			// If there's a response channel, send the result back
+			if req.ResponseChan != nil {
+				req.ResponseChan <- CommandResponse{
+					Response: respStr,
+					Error:    err,
+				}
+				close(req.ResponseChan)
+			} else if err != nil {
+				// Only log errors for fire-and-forget commands
+				utils.Logger.Errorf("Failed to process command '%s': %v", req.Command, err)
 			}
 		}
 	}
 }
 
-func (t *telloCommander) sendCommand(cmd string) error {
+func (t *telloCommander) sendCommand(cmd string) (string, error) {
 	utils.Logger.Debugf("Sending command: %s", cmd)
 
 	response, err := t.commandClient.SendCommand(cmd)
 	if err != nil {
-		return fmt.Errorf("send command '%s' failed: %w", cmd, err)
+		return "", fmt.Errorf("send command '%s' failed: %w", cmd, err)
 	}
 
 	respStr := string(response)
 	if respStr != "ok" && respStr != "OK" {
+		// For read commands, the response is the value, so we don't treat it as an error unless it says "error"
 		if respStr == "error" || respStr == "ERROR" {
-			return fmt.Errorf("command '%s' returned error: %w", cmd, err)
+			return "", fmt.Errorf("command '%s' returned error: %w", cmd, err)
 		}
-		return fmt.Errorf("unexpected response to command '%s': %s", cmd, respStr)
+		// For control commands, we expect "ok", but for read commands we expect a value.
+		// Since we don't know the command type here easily without parsing, we return the response string.
+		// The caller (or the response channel receiver) can decide if it's valid.
 	}
 
-	utils.Logger.Infof("Command '%s' sent successfully.", cmd)
-	return nil
+	utils.Logger.Infof("Command '%s' sent successfully. Response: %s", cmd, respStr)
+	return respStr, nil
 }
 
 func (t *telloCommander) sendReadCommand(cmd string) (string, error) {
 	utils.Logger.Debugf("Enqueuing read command: %s", cmd)
 
-	// Enqueue with high priority
-	t.commandQueue.EnqueueRead(cmd)
+	// Enqueue with high priority and get response channel
+	respChan := t.commandQueue.EnqueueRead(cmd)
 
-	// For now, send directly to maintain synchronous behavior
-	// TODO: Implement full async request-response pattern in queue
-	response, err := t.commandClient.SendCommand(cmd)
-	if err != nil {
-		return "", fmt.Errorf("send read command '%s' failed: %w", cmd, err)
+	// Wait for response
+	select {
+	case resp := <-respChan:
+		if resp.Error != nil {
+			return "", resp.Error
+		}
+		return resp.Response, nil
+	case <-t.ctx.Done():
+		return "", fmt.Errorf("context cancelled while waiting for command '%s'", cmd)
 	}
-
-	respStr := string(response)
-	if respStr == "error" || respStr == "ERROR" {
-		return "", fmt.Errorf("read command '%s' returned error", cmd)
-	}
-
-	utils.Logger.Debugf("Read command '%s' response: %s", cmd, respStr)
-	return respStr, nil
 }
 
 func (t *telloCommander) Init() error {
 	utils.Logger.Debugf("Initializing SDK mode")
-	return t.sendCommand("command")
+	// Init is a control command but we want to wait for it to ensure it succeeds
+	// However, sendCommand is now internal.
+	// We can use EnqueueRead for synchronous execution even if it's not strictly a "read"
+	// Or we can just fire and forget, but Init usually requires confirmation.
+	// Let's use sendReadCommand for Init to ensure we wait for "ok"
+	resp, err := t.sendReadCommand("command")
+	if err != nil {
+		return err
+	}
+	if resp != "ok" && resp != "OK" {
+		return fmt.Errorf("unexpected response to init: %s", resp)
+	}
+	return nil
 }
 
 func (t *telloCommander) TakeOff() error {
@@ -725,9 +743,8 @@ func (t *telloCommander) Shutdown() error {
 	// Signal shutdown
 	t.cancel()
 
-	// Stop accepting new commands
-	// Note: PriorityCommandQueue doesn't have Shutdown method yet
-	// This will be addressed in the queue serialization task
+	// Stop accepting new commands and wake up queue processor
+	t.commandQueue.Close()
 
 	// Wait for command processor to finish
 	t.wg.Wait()

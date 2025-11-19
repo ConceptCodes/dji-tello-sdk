@@ -10,12 +10,19 @@ import (
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/processors"
 )
 
+// WorkerResult holds the result of a worker's processing
+type WorkerResult struct {
+	Frame  *ml.EnhancedVideoFrame
+	Result ml.MLResult
+	Error  error
+}
+
 // Worker represents a worker that processes frames using a specific ML processor
 type Worker struct {
 	processor  processors.MLProcessor
 	workerPool *WorkerPool
 	inputChan  chan *ml.EnhancedVideoFrame
-	outputChan chan ml.MLResult
+	outputChan chan WorkerResult
 	quit       chan struct{}
 	mu         sync.RWMutex
 	running    bool
@@ -47,7 +54,7 @@ func NewWorker(processor processors.MLProcessor, poolSize int) *Worker {
 	return &Worker{
 		processor:  processor,
 		inputChan:  make(chan *ml.EnhancedVideoFrame, poolSize),
-		outputChan: make(chan ml.MLResult, poolSize),
+		outputChan: make(chan WorkerResult, poolSize),
 		quit:       make(chan struct{}),
 		running:    false,
 		metrics: WorkerMetrics{
@@ -155,12 +162,12 @@ func (w *Worker) run(ctx context.Context) {
 			result, err := w.Process(ctx, frame)
 			if err != nil {
 				fmt.Printf("Worker processing error: %v\n", err)
-				continue
+				// Still send result with error
 			}
 
 			// Send result
 			select {
-			case w.outputChan <- result:
+			case w.outputChan <- WorkerResult{Frame: frame, Result: result, Error: err}:
 			case <-ctx.Done():
 				return
 			case <-w.quit:

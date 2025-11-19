@@ -42,25 +42,25 @@ func TestPriorityCommandQueue(t *testing.T) {
 	}
 
 	// Test dequeue order - high priority commands should come first
-	cmd, ok := pq.Dequeue()
-	if !ok || cmd != "speed?" {
-		t.Errorf("Expected first command to be 'speed?', got '%s'", cmd)
+	req, ok := pq.Dequeue()
+	if !ok || req.Command != "speed?" {
+		t.Errorf("Expected first command to be 'speed?', got '%s'", req.Command)
 	}
 
-	cmd, ok = pq.Dequeue()
-	if !ok || cmd != "battery?" {
-		t.Errorf("Expected second command to be 'battery?', got '%s'", cmd)
+	req, ok = pq.Dequeue()
+	if !ok || req.Command != "battery?" {
+		t.Errorf("Expected second command to be 'battery?', got '%s'", req.Command)
 	}
 
 	// Now low priority commands
-	cmd, ok = pq.Dequeue()
-	if !ok || cmd != "takeoff" {
-		t.Errorf("Expected third command to be 'takeoff', got '%s'", cmd)
+	req, ok = pq.Dequeue()
+	if !ok || req.Command != "takeoff" {
+		t.Errorf("Expected third command to be 'takeoff', got '%s'", req.Command)
 	}
 
-	cmd, ok = pq.Dequeue()
-	if !ok || cmd != "land" {
-		t.Errorf("Expected fourth command to be 'land', got '%s'", cmd)
+	req, ok = pq.Dequeue()
+	if !ok || req.Command != "land" {
+		t.Errorf("Expected fourth command to be 'land', got '%s'", req.Command)
 	}
 
 	// Queue should be empty now
@@ -110,20 +110,20 @@ func TestPriorityCommandQueueWithPriority(t *testing.T) {
 	pq.EnqueueWithPriority("land", PriorityLow)
 
 	// Should process high priority first
-	cmd, ok := pq.Dequeue()
-	if !ok || cmd != "speed?" {
-		t.Errorf("Expected 'speed?' first, got '%s'", cmd)
+	req, ok := pq.Dequeue()
+	if !ok || req.Command != "speed?" {
+		t.Errorf("Expected 'speed?' first, got '%s'", req.Command)
 	}
 
 	// Then low priority in FIFO order
-	cmd, ok = pq.Dequeue()
-	if !ok || cmd != "takeoff" {
-		t.Errorf("Expected 'takeoff' second, got '%s'", cmd)
+	req, ok = pq.Dequeue()
+	if !ok || req.Command != "takeoff" {
+		t.Errorf("Expected 'takeoff' second, got '%s'", req.Command)
 	}
 
-	cmd, ok = pq.Dequeue()
-	if !ok || cmd != "land" {
-		t.Errorf("Expected 'land' third, got '%s'", cmd)
+	req, ok = pq.Dequeue()
+	if !ok || req.Command != "land" {
+		t.Errorf("Expected 'land' third, got '%s'", req.Command)
 	}
 }
 
@@ -161,20 +161,20 @@ func TestPriorityCommandQueueConcurrency(t *testing.T) {
 	totalCount := 0
 
 	for totalCount < 20 {
-		cmd, ok := pq.Dequeue()
+		req, ok := pq.Dequeue()
 		if !ok {
 			break
 		}
 
 		totalCount++
-		if cmd == "read" {
+		if req.Command == "read" {
 			readCount++
-		} else if cmd == "control" {
+		} else if req.Command == "control" {
 			controlCount++
 		}
 
 		// All read commands should come before control commands
-		if cmd == "control" && readCount < 10 {
+		if req.Command == "control" && readCount < 10 {
 			t.Errorf("Control command appeared before all read commands were processed")
 		}
 	}

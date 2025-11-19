@@ -1,6 +1,7 @@
 package tello
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -53,6 +54,19 @@ func (m *MockCommandConnection) Close() error {
 	return nil
 }
 
+func createTestCommander(mockConn CommandConnection) *telloCommander {
+	ctx, cancel := context.WithCancel(context.Background())
+	commander := &telloCommander{
+		commandClient: mockConn,
+		commandQueue:  NewPriorityCommandQueue(),
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+	commander.wg.Add(1)
+	go commander.processCommandQueue()
+	return commander
+}
+
 func TestNewTelloCommander(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	queue := NewPriorityCommandQueue()
@@ -74,10 +88,8 @@ func TestGetSpeed(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("speed?", "50")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	speed, err := commander.GetSpeed()
 	if err != nil {
@@ -98,10 +110,8 @@ func TestGetBatteryPercentage(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("battery?", "85")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	battery, err := commander.GetBatteryPercentage()
 	if err != nil {
@@ -117,18 +127,16 @@ func TestGetTime(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("time?", "120")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
-	time, err := commander.GetTime()
+	timeVal, err := commander.GetTime()
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
 	}
 
-	if time != 120 {
-		t.Errorf("Expected time 120, got %d", time)
+	if timeVal != 120 {
+		t.Errorf("Expected time 120, got %d", timeVal)
 	}
 }
 
@@ -136,10 +144,8 @@ func TestGetHeight(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("height?", "100")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	height, err := commander.GetHeight()
 	if err != nil {
@@ -155,10 +161,8 @@ func TestGetTemperature(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("temp?", "25")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	temp, err := commander.GetTemperature()
 	if err != nil {
@@ -174,10 +178,8 @@ func TestGetAttitude(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("attitude?", "10 -5 180")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	pitch, roll, yaw, err := commander.GetAttitude()
 	if err != nil {
@@ -193,10 +195,8 @@ func TestGetAttitudeInvalidFormat(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("attitude?", "invalid")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	_, _, _, err := commander.GetAttitude()
 	if err == nil {
@@ -208,10 +208,8 @@ func TestGetBarometer(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("baro?", "1013.25")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	baro, err := commander.GetBarometer()
 	if err != nil {
@@ -227,10 +225,8 @@ func TestGetAcceleration(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("acceleration?", "100 -200 50")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	agx, agy, agz, err := commander.GetAcceleration()
 	if err != nil {
@@ -246,10 +242,8 @@ func TestGetAccelerationInvalidFormat(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("acceleration?", "invalid")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	_, _, _, err := commander.GetAcceleration()
 	if err == nil {
@@ -261,10 +255,8 @@ func TestGetTof(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("tof?", "300")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	tof, err := commander.GetTof()
 	if err != nil {
@@ -281,10 +273,8 @@ func TestInit(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("command", "ok")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	err := commander.Init()
 	if err != nil {
@@ -313,9 +303,9 @@ func TestTakeOff(t *testing.T) {
 		t.Errorf("Expected queue size 1, got %d", queue.Size())
 	}
 
-	cmd, ok := queue.Dequeue()
-	if !ok || cmd != "takeoff" {
-		t.Errorf("Expected 'takeoff' command, got '%s'", cmd)
+	req, ok := queue.Dequeue()
+	if !ok || req.Command != "takeoff" {
+		t.Errorf("Expected 'takeoff' command, got '%s'", req.Command)
 	}
 }
 
@@ -335,9 +325,9 @@ func TestLand(t *testing.T) {
 		t.Errorf("Expected queue size 1, got %d", queue.Size())
 	}
 
-	cmd, ok := queue.Dequeue()
-	if !ok || cmd != "land" {
-		t.Errorf("Expected 'land' command, got '%s'", cmd)
+	req, ok := queue.Dequeue()
+	if !ok || req.Command != "land" {
+		t.Errorf("Expected 'land' command, got '%s'", req.Command)
 	}
 }
 
@@ -353,9 +343,9 @@ func TestEmergency(t *testing.T) {
 		t.Errorf("Expected no error, got %v", err)
 	}
 
-	cmd, ok := queue.Dequeue()
-	if !ok || cmd != "emergency" {
-		t.Errorf("Expected 'emergency' command, got '%s'", cmd)
+	req, ok := queue.Dequeue()
+	if !ok || req.Command != "emergency" {
+		t.Errorf("Expected 'emergency' command, got '%s'", req.Command)
 	}
 }
 
@@ -388,9 +378,9 @@ func TestMovementCommands(t *testing.T) {
 				t.Errorf("Expected no error for %s, got %v", test.name, err)
 			}
 
-			cmd, ok := queue.Dequeue()
-			if !ok || cmd != test.command {
-				t.Errorf("Expected '%s' command for %s, got '%s'", test.command, test.name, cmd)
+			req, ok := queue.Dequeue()
+			if !ok || req.Command != test.command {
+				t.Errorf("Expected '%s' command for %s, got '%s'", test.command, test.name, req.Command)
 			}
 		})
 	}
@@ -436,9 +426,9 @@ func TestRotationCommands(t *testing.T) {
 		t.Errorf("Expected no error for clockwise rotation, got %v", err)
 	}
 
-	cmd, ok := queue.Dequeue()
-	if !ok || cmd != "cw 90" {
-		t.Errorf("Expected 'cw 90' command, got '%s'", cmd)
+	req, ok := queue.Dequeue()
+	if !ok || req.Command != "cw 90" {
+		t.Errorf("Expected 'cw 90' command, got '%s'", req.Command)
 	}
 
 	err = commander.CounterClockwise(180)
@@ -446,9 +436,9 @@ func TestRotationCommands(t *testing.T) {
 		t.Errorf("Expected no error for counter-clockwise rotation, got %v", err)
 	}
 
-	cmd, ok = queue.Dequeue()
-	if !ok || cmd != "ccw 180" {
-		t.Errorf("Expected 'ccw 180' command, got '%s'", cmd)
+	req, ok = queue.Dequeue()
+	if !ok || req.Command != "ccw 180" {
+		t.Errorf("Expected 'ccw 180' command, got '%s'", req.Command)
 	}
 }
 
@@ -464,9 +454,9 @@ func TestFlipCommand(t *testing.T) {
 		t.Errorf("Expected no error for flip command, got %v", err)
 	}
 
-	cmd, ok := queue.Dequeue()
-	if !ok || cmd != "flip l" {
-		t.Errorf("Expected 'flip l' command, got '%s'", cmd)
+	req, ok := queue.Dequeue()
+	if !ok || req.Command != "flip l" {
+		t.Errorf("Expected 'flip l' command, got '%s'", req.Command)
 	}
 }
 
@@ -482,9 +472,9 @@ func TestSetSpeed(t *testing.T) {
 		t.Errorf("Expected no error for set speed, got %v", err)
 	}
 
-	cmd, ok := queue.Dequeue()
-	if !ok || cmd != "speed 75" {
-		t.Errorf("Expected 'speed 75' command, got '%s'", cmd)
+	req, ok := queue.Dequeue()
+	if !ok || req.Command != "speed 75" {
+		t.Errorf("Expected 'speed 75' command, got '%s'", req.Command)
 	}
 }
 
@@ -500,9 +490,9 @@ func TestSetRcControl(t *testing.T) {
 		t.Errorf("Expected no error for RC control, got %v", err)
 	}
 
-	cmd, ok := queue.Dequeue()
-	if !ok || cmd != "rc 50 -30 0 90" {
-		t.Errorf("Expected 'rc 50 -30 0 90' command, got '%s'", cmd)
+	req, ok := queue.Dequeue()
+	if !ok || req.Command != "rc 50 -30 0 90" {
+		t.Errorf("Expected 'rc 50 -30 0 90' command, got '%s'", req.Command)
 	}
 }
 
@@ -518,9 +508,9 @@ func TestSetWiFiCredentials(t *testing.T) {
 		t.Errorf("Expected no error for WiFi credentials, got %v", err)
 	}
 
-	cmd, ok := queue.Dequeue()
-	if !ok || cmd != "wifi MyWiFi password123" {
-		t.Errorf("Expected 'wifi MyWiFi password123' command, got '%s'", cmd)
+	req, ok := queue.Dequeue()
+	if !ok || req.Command != "wifi MyWiFi password123" {
+		t.Errorf("Expected 'wifi MyWiFi password123' command, got '%s'", req.Command)
 	}
 }
 
@@ -529,16 +519,10 @@ func TestSendReadCommandError(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetError("speed?", errors.New("network error"))
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	_, err := commander.GetSpeed()
-	if err == nil {
-		t.Error("Expected error for failed read command, got nil")
-	}
-
 	if err == nil {
 		t.Error("Expected error for failed read command, got nil")
 	}
@@ -564,10 +548,8 @@ func TestSendReadCommandErrorResponse(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("speed?", "error")
 
-	commander := &telloCommander{
-		commandClient: mockConn,
-		commandQueue:  NewPriorityCommandQueue(),
-	}
+	commander := createTestCommander(mockConn)
+	defer commander.Shutdown()
 
 	_, err := commander.GetSpeed()
 	if err == nil {
@@ -584,7 +566,7 @@ func TestSendCommandErrorResponse(t *testing.T) {
 		commandQueue:  NewPriorityCommandQueue(),
 	}
 
-	err := commander.sendCommand("takeoff")
+	_, err := commander.sendCommand("takeoff")
 	if err == nil {
 		t.Error("Expected error for error response, got nil")
 	}
@@ -599,8 +581,13 @@ func TestSendCommandUnexpectedResponse(t *testing.T) {
 		commandQueue:  NewPriorityCommandQueue(),
 	}
 
-	err := commander.sendCommand("takeoff")
-	if err == nil {
-		t.Error("Expected error for unexpected response, got nil")
+	// sendCommand now returns (string, error)
+	// It returns the response string even if it's not "ok", unless it's "error"
+	resp, err := commander.sendCommand("takeoff")
+	if err != nil {
+		t.Errorf("Expected no error for unexpected response (as it might be a read value), got %v", err)
+	}
+	if resp != "unexpected" {
+		t.Errorf("Expected response 'unexpected', got '%s'", resp)
 	}
 }

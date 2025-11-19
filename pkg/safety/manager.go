@@ -906,9 +906,7 @@ func (sm *SafetyManager) hasCriticalOrEmergencyEvents(events []SafetyEvent) bool
 }
 
 func (sm *SafetyManager) getAttitudeAngles(state *types.State) (pitch, roll, yaw int) {
-	// This would need to be implemented based on how attitude is stored
-	// For now, return 0 as placeholder
-	return 0, 0, 0
+	return state.Pitch, state.Roll, state.Yaw
 }
 
 // Utility functions

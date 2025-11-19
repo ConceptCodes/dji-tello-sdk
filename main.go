@@ -2,7 +2,7 @@ package main
 
 import (
 	"os"
-	"time"
+	// "time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
@@ -18,15 +18,23 @@ func main() {
 
 	utils.Logger.Info("SDK mode initialized successfully")
 
-	if err := drone.TakeOff(); err != nil {
-		utils.Logger.Errorf("Error with takeoff: %v", err)
+	percentage, err := drone.GetBatteryPercentage()
+	if err != nil {
+		utils.Logger.Errorf("Error getting battery percentage: %v", err)
 		os.Exit(1)
 	}
 
-	time.Sleep(3 * time.Second)
+	utils.Logger.Infof("Battery percentage: %d%%", percentage)
 
-	if err := drone.Land(); err != nil {
-		utils.Logger.Errorf("Error with landing the drone: %v", err)
-		os.Exit(1)
-	}
+	// if err := drone.TakeOff(); err != nil {
+	// 	utils.Logger.Errorf("Error with takeoff: %v", err)
+	// 	os.Exit(1)
+	// }
+
+	// time.Sleep(3 * time.Second)
+
+	// if err := drone.Land(); err != nil {
+	// 	utils.Logger.Errorf("Error with landing the drone: %v", err)
+	// 	os.Exit(1)
+	// }
 }

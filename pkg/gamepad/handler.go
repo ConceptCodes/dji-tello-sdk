@@ -15,7 +15,6 @@ type Handler struct {
 	state     *GamepadState
 	mapper    Mapper
 	isRunning bool
-	stopChan  chan struct{}
 	mu        sync.RWMutex
 
 	// SDL2 specific
@@ -52,6 +51,7 @@ func NewHandler(opts HandlerOptions) (*Handler, error) {
 	}
 
 	// Initialize SDL2
+	// Note: SDL2 functions should generally be called from the main thread.
 	if err := sdl.Init(sdl.INIT_GAMECONTROLLER); err != nil {
 		return nil, fmt.Errorf("failed to initialize SDL2: %w", err)
 	}
@@ -68,7 +68,6 @@ func NewHandler(opts HandlerOptions) (*Handler, error) {
 		config:         opts.Config,
 		state:          NewGamepadState(),
 		mapper:         mapper,
-		stopChan:       make(chan struct{}),
 		updateInterval: updateInterval,
 		onCommand:      opts.OnCommand,
 		onError:        opts.OnError,
@@ -78,7 +77,8 @@ func NewHandler(opts HandlerOptions) (*Handler, error) {
 	return handler, nil
 }
 
-// Start begins the gamepad input processing loop
+// Start initializes the gamepad connection.
+// Note: This does NOT start a background loop. You must call ProcessEvents() periodically from the main thread.
 func (h *Handler) Start() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -93,17 +93,14 @@ func (h *Handler) Start() error {
 	}
 
 	h.isRunning = true
-	h.stopChan = make(chan struct{})
 
 	utils.Logger.Infof("Starting gamepad handler with %d Hz update rate", h.config.Controller.UpdateRate)
 	utils.Logger.Infof("Connected to gamepad: %s", h.gamepad.Name())
 
-	go h.inputLoop()
-
 	return nil
 }
 
-// Stop stops the gamepad input processing loop
+// Stop stops the gamepad handler and cleans up resources
 func (h *Handler) Stop() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -113,7 +110,6 @@ func (h *Handler) Stop() error {
 	}
 
 	h.isRunning = false
-	close(h.stopChan)
 
 	// Close gamepad and cleanup SDL2
 	if h.gamepad != nil {
@@ -163,23 +159,9 @@ func (h *Handler) GetState() *GamepadState {
 	return stateCopy
 }
 
-// inputLoop processes gamepad input continuously
-func (h *Handler) inputLoop() {
-	ticker := time.NewTicker(h.updateInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-h.stopChan:
-			return
-		case <-ticker.C:
-			h.processInput()
-		}
-	}
-}
-
-// processInput updates gamepad state and generates drone commands
-func (h *Handler) processInput() {
+// ProcessEvents processes gamepad input events.
+// This MUST be called from the main thread.
+func (h *Handler) ProcessEvents() {
 	if h.gamepad == nil {
 		return
 	}

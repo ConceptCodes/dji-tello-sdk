@@ -21,7 +21,7 @@ func NewEnhancedVideoDisplay(commander tello.TelloCommander, mlResultChan <-chan
 	baseDisplay := transport.NewVideoDisplay(transport.DisplayTypeWeb)
 
 	// Create web server with proper ML result channel
-	webServer := NewWebServer(commander, mlResultChan)
+	webServer := NewWebServer(commander, nil, nil, mlResultChan)
 
 	return &EnhancedVideoDisplay{
 		videoDisplay: baseDisplay,

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/gamepad"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/tello"
@@ -67,16 +68,23 @@ Supports Xbox, PlayStation, and generic USB controllers with customizable button
 			cmd.Println("Use left stick for movement, right stick for altitude/yaw.")
 			cmd.Println("Press A for takeoff/land, B for emergency stop.")
 
-			// Wait for shutdown signal
-			<-sigChan
-			cmd.Println("\nShutting down gamepad control...")
+			// Main loop for processing events
+			ticker := time.NewTicker(time.Second / time.Duration(config.Controller.UpdateRate))
+			defer ticker.Stop()
 
-			// Land the drone before exiting
-			if err := drone.Land(); err != nil {
-				utils.Logger.Errorf("Failed to land drone: %v", err)
+			for {
+				select {
+				case <-sigChan:
+					cmd.Println("\nShutting down gamepad control...")
+					// Land the drone before exiting
+					if err := drone.Land(); err != nil {
+						utils.Logger.Errorf("Failed to land drone: %v", err)
+					}
+					return nil
+				case <-ticker.C:
+					handler.ProcessEvents()
+				}
 			}
-
-			return nil
 		},
 	}
 

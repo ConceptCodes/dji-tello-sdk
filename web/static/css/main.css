@@ -111,16 +111,18 @@ body {
 
 .app-status {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: nowrap;
+  justify-content: flex-end;
 }
 
 .chip-group {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
 }
 
