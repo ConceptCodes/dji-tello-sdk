@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/config"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/errors"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 )
@@ -139,14 +141,14 @@ func (t *telloCommander) sendCommand(cmd string) (string, error) {
 
 	response, err := t.commandClient.SendCommand(cmd)
 	if err != nil {
-		return "", fmt.Errorf("send command '%s' failed: %w", cmd, err)
+		return "", errors.CommandError(cmd, err)
 	}
 
 	respStr := string(response)
 	if respStr != "ok" && respStr != "OK" {
 		// For read commands, the response is the value, so we don't treat it as an error unless it says "error"
 		if respStr == "error" || respStr == "ERROR" {
-			return "", fmt.Errorf("command '%s' returned error: %w", cmd, err)
+			return "", errors.CommandError(cmd, fmt.Errorf("command returned error response: %s", respStr))
 		}
 		// For control commands, we expect "ok", but for read commands we expect a value.
 		// Since we don't know the command type here easily without parsing, we return the response string.
@@ -171,7 +173,8 @@ func (t *telloCommander) sendReadCommand(cmd string) (string, error) {
 		}
 		return resp.Response, nil
 	case <-t.ctx.Done():
-		return "", fmt.Errorf("context cancelled while waiting for command '%s'", cmd)
+		return "", errors.NewSDKError(errors.ErrTimeout, "TelloCommander",
+			fmt.Sprintf("context cancelled while waiting for command '%s'", cmd))
 	}
 }
 
@@ -187,7 +190,8 @@ func (t *telloCommander) Init() error {
 		return err
 	}
 	if resp != "ok" && resp != "OK" {
-		return fmt.Errorf("unexpected response to init: %s", resp)
+		return errors.NewSDKError(errors.ErrCommandFailed, "TelloCommander",
+			fmt.Sprintf("unexpected response to init: %s", resp))
 	}
 	return nil
 }
@@ -372,10 +376,12 @@ func (t *telloCommander) Curve(x1, y1, z1, x2, y2, z2, speed int) error {
 
 	// Ensure x, y, z are not all between -20 and 20 at the same time
 	if (x1 >= -20 && x1 <= 20) && (y1 >= -20 && y1 <= 20) && (z1 >= -20 && z1 <= 20) {
-		return fmt.Errorf("x1, y1, z1 cannot all be between -20 and 20 at the same time")
+		return errors.InvalidArgumentError("TelloCommander", "curve parameters",
+			"x1, y1, z1 cannot all be between -20 and 20 at the same time")
 	}
 	if (x2 >= -20 && x2 <= 20) && (y2 >= -20 && y2 <= 20) && (z2 >= -20 && z2 <= 20) {
-		return fmt.Errorf("x2, y2, z2 cannot all be between -20 and 20 at the same time")
+		return errors.InvalidArgumentError("TelloCommander", "curve parameters",
+			"x2, y2, z2 cannot all be between -20 and 20 at the same time")
 	}
 
 	if err := utils.ValidateArcRadius(x1, x2, y1, y2, z1, z2, 0.5, 10); err != nil {
@@ -424,10 +430,12 @@ func (t *telloCommander) SetRcControl(a, b, c, d int) error {
 
 func (t *telloCommander) SetWiFiCredentials(ssid, password string) error {
 	if err := utils.ValidateNumberInRange(len(ssid), 1, 32); err != nil {
-		return fmt.Errorf("SSID must be greater than 1 and less than 32 chars")
+		return errors.InvalidArgumentError("TelloCommander", "ssid",
+			"must be greater than 1 and less than 32 chars")
 	}
 	if len(password) < 1 {
-		return fmt.Errorf("password length must be greater than 1 character")
+		return errors.InvalidArgumentError("TelloCommander", "password",
+			"length must be greater than 1 character")
 	}
 
 	utils.Logger.Debugf("Setting WiFi credentials to SSID: %s, Password: %s", ssid, password)
@@ -486,22 +494,26 @@ func (t *telloCommander) GetAttitude() (int, int, int, error) {
 	// Response format: "pitch roll yaw"
 	parts := strings.Fields(response)
 	if len(parts) != 3 {
-		return 0, 0, 0, fmt.Errorf("unexpected attitude response format: %s", response)
+		return 0, 0, 0, errors.NewSDKError(errors.ErrCommandFailed, "TelloCommander",
+			fmt.Sprintf("unexpected attitude response format: %s", response))
 	}
 
 	pitch, err := utils.ParseInt(parts[0])
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse pitch: %w", err)
+		return 0, 0, 0, errors.WrapSDKError(err, errors.ErrCommandFailed, "TelloCommander",
+			"failed to parse pitch")
 	}
 
 	roll, err := utils.ParseInt(parts[1])
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse roll: %w", err)
+		return 0, 0, 0, errors.WrapSDKError(err, errors.ErrCommandFailed, "TelloCommander",
+			"failed to parse roll")
 	}
 
 	yaw, err := utils.ParseInt(parts[2])
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse yaw: %w", err)
+		return 0, 0, 0, errors.WrapSDKError(err, errors.ErrCommandFailed, "TelloCommander",
+			"failed to parse yaw")
 	}
 
 	return pitch, roll, yaw, nil
@@ -529,22 +541,26 @@ func (t *telloCommander) GetAcceleration() (int, int, int, error) {
 	// Response format: "x y z" (in 0.001g units)
 	parts := strings.Fields(response)
 	if len(parts) != 3 {
-		return 0, 0, 0, fmt.Errorf("unexpected acceleration response format: %s", response)
+		return 0, 0, 0, errors.NewSDKError(errors.ErrCommandFailed, "TelloCommander",
+			fmt.Sprintf("unexpected acceleration response format: %s", response))
 	}
 
 	agx, err := utils.ParseInt(parts[0])
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse acceleration x: %w", err)
+		return 0, 0, 0, errors.WrapSDKError(err, errors.ErrCommandFailed, "TelloCommander",
+			"failed to parse acceleration x")
 	}
 
 	agy, err := utils.ParseInt(parts[1])
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse acceleration y: %w", err)
+		return 0, 0, 0, errors.WrapSDKError(err, errors.ErrCommandFailed, "TelloCommander",
+			"failed to parse acceleration y")
 	}
 
 	agz, err := utils.ParseInt(parts[2])
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to parse acceleration z: %w", err)
+		return 0, 0, 0, errors.WrapSDKError(err, errors.ErrCommandFailed, "TelloCommander",
+			"failed to parse acceleration z")
 	}
 
 	return agx, agy, agz, nil
@@ -590,24 +606,27 @@ func Initialize() (TelloCommander, error) {
 
 // InitializeWithInit creates and configures a new TelloCommander with optional initialization
 func InitializeWithInit(autoInit bool) (TelloCommander, error) {
+	// Use default transport configuration
+	cfg := config.DefaultTransportConfig()
+
 	utils.Logger.Info("Initializing Tello SDK...")
 
-	commandClient, err := transport.NewCommandConnection()
+	commandClient, err := transport.NewCommandConnectionWithConfig(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create command connection: %w", err)
+		return nil, errors.ConnectionError("TelloCommander", "create command connection", err)
 	}
 
 	commandQueue := NewPriorityCommandQueue()
 
-	// Use standard Tello SDK ports
-	stateListener, err := transport.NewStateListener(":8890")
+	// Use configurable ports from TransportConfig
+	stateListener, err := transport.NewStateListener(cfg.LocalStateAddr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create state listener: %w", err)
+		return nil, errors.ConnectionError("TelloCommander", "create state listener", err)
 	}
 
-	videoStreamListener, err := transport.NewVideoStreamListener(":11111")
+	videoStreamListener, err := transport.NewVideoStreamListener(cfg.LocalVideoAddr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create video stream listener: %w", err)
+		return nil, errors.ConnectionError("TelloCommander", "create video stream listener", err)
 	}
 
 	commander := NewTelloCommander(commandClient, commandQueue, stateListener, videoStreamListener)
@@ -626,9 +645,9 @@ func InitializeWithInit(autoInit bool) (TelloCommander, error) {
 
 	if autoInit {
 		if err := commander.Init(); err != nil {
-			return nil, fmt.Errorf("SDK mode handshake failed: %w", err)
+			return nil, errors.WrapSDKError(err, errors.ErrConnectionFailed, "TelloCommander",
+				"SDK mode handshake failed")
 		}
-		utils.Logger.Info("SDK mode initialized successfully")
 	}
 
 	utils.Logger.Info("Tello SDK initialized successfully")
@@ -637,9 +656,17 @@ func InitializeWithInit(autoInit bool) (TelloCommander, error) {
 
 // InitializeOptions holds optional initialization parameters
 type InitializeOptions struct {
+	TransportConfig  config.TransportConfig
 	SafetyConfigPath string
 	SafetyPreset     string
 	SafetyEnabled    bool
+}
+
+// WithTransportConfig specifies custom transport configuration
+func WithTransportConfig(cfg config.TransportConfig) func(*InitializeOptions) {
+	return func(opts *InitializeOptions) {
+		opts.TransportConfig = cfg
+	}
 }
 
 // WithSafetyConfig specifies a custom safety configuration file
@@ -667,7 +694,8 @@ func WithSafetyDisabled() func(*InitializeOptions) {
 func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, error) {
 	// Apply default options
 	options := &InitializeOptions{
-		SafetyEnabled: true, // Enable safety by default
+		TransportConfig: config.DefaultTransportConfig(),
+		SafetyEnabled:   true, // Enable safety by default
 	}
 
 	// Apply provided options
@@ -675,24 +703,30 @@ func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, er
 		opt(options)
 	}
 
+	// Validate transport configuration
+	if err := options.TransportConfig.Validate(); err != nil {
+		return nil, errors.WrapSDKError(err, errors.ErrConfigValidation, "TelloCommander",
+			"invalid transport configuration")
+	}
+
 	utils.Logger.Info("Initializing Tello SDK...")
 
-	commandClient, err := transport.NewCommandConnection()
+	commandClient, err := transport.NewCommandConnectionWithConfig(options.TransportConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create command connection: %w", err)
+		return nil, errors.ConnectionError("TelloCommander", "create command connection", err)
 	}
 
 	commandQueue := NewPriorityCommandQueue()
 
-	// Use standard Tello SDK ports
-	stateListener, err := transport.NewStateListener(":8890")
+	// Use configurable ports from TransportConfig
+	stateListener, err := transport.NewStateListener(options.TransportConfig.LocalStateAddr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create state listener: %w", err)
+		return nil, errors.ConnectionError("TelloCommander", "create state listener", err)
 	}
 
-	videoStreamListener, err := transport.NewVideoStreamListener(":11111")
+	videoStreamListener, err := transport.NewVideoStreamListener(options.TransportConfig.LocalVideoAddr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create video stream listener: %w", err)
+		return nil, errors.ConnectionError("TelloCommander", "create video stream listener", err)
 	}
 
 	commander := NewTelloCommander(commandClient, commandQueue, stateListener, videoStreamListener)
@@ -710,7 +744,7 @@ func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, er
 
 	go func() {
 		if err := stateListener.Start(); err != nil {
-			stateListenerErr <- fmt.Errorf("failed to start state listener: %w", err)
+			stateListenerErr <- errors.ConnectionError("TelloCommander", "start state listener", err)
 		} else {
 			close(stateListenerErr)
 		}
@@ -718,7 +752,7 @@ func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, er
 
 	go func() {
 		if err := videoStreamListener.Start(); err != nil {
-			videoListenerErr <- fmt.Errorf("failed to start video stream listener: %w", err)
+			videoListenerErr <- errors.ConnectionError("TelloCommander", "start video stream listener", err)
 		} else {
 			close(videoListenerErr)
 		}

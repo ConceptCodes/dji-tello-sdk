@@ -28,7 +28,7 @@ type Manager interface {
 	Backward(distance int) error
 	Clockwise(angle int) error
 	CounterClockwise(angle int) error
-	Flip(direction interface{}) error
+	Flip(direction string) error
 	Go(x, y, z, speed int) error
 	Curve(x1, y1, z1, x2, y2, z2, speed int) error
 
@@ -49,7 +49,7 @@ type Manager interface {
 	GetTof() (int, error)
 
 	// Video Commands
-	SetVideoFrameCallback(callback interface{})
+	SetVideoFrameCallback(callback func(transport.VideoFrame))
 	GetVideoFrameChannel() <-chan transport.VideoFrame
 
 	// Safety-specific methods

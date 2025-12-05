@@ -149,19 +149,21 @@ func (vd *VideoDisplay) Stop() {
 	}
 
 	// Cleanup SDL resources
-	if vd.texture != nil {
-		vd.texture.Destroy()
-		vd.texture = nil
-	}
-	if vd.renderer != nil {
-		vd.renderer.Destroy()
-		vd.renderer = nil
-	}
-	if vd.window != nil {
-		vd.window.Destroy()
-		vd.window = nil
-	}
-	sdl.Quit()
+	sdl.Do(func() {
+		if vd.texture != nil {
+			vd.texture.Destroy()
+			vd.texture = nil
+		}
+		if vd.renderer != nil {
+			vd.renderer.Destroy()
+			vd.renderer = nil
+		}
+		if vd.window != nil {
+			vd.window.Destroy()
+			vd.window = nil
+		}
+		sdl.Quit()
+	})
 
 	utils.Logger.Info("Video display stopped")
 }
@@ -175,31 +177,38 @@ func (vd *VideoDisplay) IsRunning() bool {
 
 // initSDL initializes SDL2 window and renderer
 func (vd *VideoDisplay) initSDL() error {
-	if err := sdl.Init(sdl.INIT_VIDEO); err != nil {
-		return fmt.Errorf("failed to initialize SDL: %w", err)
-	}
+	var err error
+	sdl.Do(func() {
+		if err = sdl.Init(sdl.INIT_VIDEO); err != nil {
+			err = fmt.Errorf("failed to initialize SDL: %w", err)
+			return
+		}
 
-	window, err := sdl.CreateWindow("Tello Video Feed", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
-		defaultVideoFrameWidth, defaultVideoFrameHeight, sdl.WINDOW_SHOWN|sdl.WINDOW_ALLOW_HIGHDPI)
-	if err != nil {
-		return fmt.Errorf("failed to create window: %w", err)
-	}
-	vd.window = window
+		window, errCreate := sdl.CreateWindow("Tello Video Feed", sdl.WINDOWPOS_UNDEFINED, sdl.WINDOWPOS_UNDEFINED,
+			defaultVideoFrameWidth, defaultVideoFrameHeight, sdl.WINDOW_SHOWN|sdl.WINDOW_ALLOW_HIGHDPI)
+		if errCreate != nil {
+			err = fmt.Errorf("failed to create window: %w", errCreate)
+			return
+		}
+		vd.window = window
 
-	renderer, err := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED|sdl.RENDERER_PRESENTVSYNC)
-	if err != nil {
-		return fmt.Errorf("failed to create renderer: %w", err)
-	}
-	vd.renderer = renderer
+		renderer, errCreate := sdl.CreateRenderer(window, -1, sdl.RENDERER_ACCELERATED|sdl.RENDERER_PRESENTVSYNC)
+		if errCreate != nil {
+			err = fmt.Errorf("failed to create renderer: %w", errCreate)
+			return
+		}
+		vd.renderer = renderer
 
-	texture, err := renderer.CreateTexture(uint32(sdl.PIXELFORMAT_RGBA32), sdl.TEXTUREACCESS_STREAMING,
-		defaultVideoFrameWidth, defaultVideoFrameHeight)
-	if err != nil {
-		return fmt.Errorf("failed to create texture: %w", err)
-	}
-	vd.texture = texture
+		texture, errCreate := renderer.CreateTexture(uint32(sdl.PIXELFORMAT_RGBA32), sdl.TEXTUREACCESS_STREAMING,
+			defaultVideoFrameWidth, defaultVideoFrameHeight)
+		if errCreate != nil {
+			err = fmt.Errorf("failed to create texture: %w", errCreate)
+			return
+		}
+		vd.texture = texture
+	})
 
-	return nil
+	return err
 }
 
 // ProcessEvents handles SDL events and rendering
@@ -208,47 +217,51 @@ func (vd *VideoDisplay) ProcessEvents() {
 		return
 	}
 
-	// Handle SDL events
-	for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
-		switch event.(type) {
-		case *sdl.QuitEvent:
-			vd.Stop()
-			return
-		}
-	}
-
-	// Render frame
-	vd.mutex.Lock()
-	defer vd.mutex.Unlock()
-
-	if vd.lastFrame != nil && vd.texture != nil && vd.renderer != nil {
-		// Convert image.Image to RGBA bytes
-		bounds := vd.lastFrame.Bounds()
-		width, height := bounds.Max.X, bounds.Max.Y
-
-		// We need raw pixels for SDL texture
-		// This is a bit inefficient, ideally we'd write directly to texture buffer
-		// or use a more efficient conversion
-		pixels := make([]byte, width*height*4)
-
-		// Simple conversion (slow)
-		// TODO: Optimize this
-		for y := 0; y < height; y++ {
-			for x := 0; x < width; x++ {
-				r, g, b, a := vd.lastFrame.At(x, y).RGBA()
-				idx := (y*width + x) * 4
-				pixels[idx] = byte(r >> 8)
-				pixels[idx+1] = byte(g >> 8)
-				pixels[idx+2] = byte(b >> 8)
-				pixels[idx+3] = byte(a >> 8)
+	sdl.Do(func() {
+		// Handle SDL events
+		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+			switch event.(type) {
+			case *sdl.QuitEvent:
+				vd.mutex.Lock()
+				vd.isRunning = false
+				vd.mutex.Unlock()
+				return
 			}
 		}
 
-		vd.texture.Update(nil, unsafe.Pointer(&pixels[0]), width*4)
-		vd.renderer.Clear()
-		vd.renderer.Copy(vd.texture, nil, nil)
-		vd.renderer.Present()
-	}
+		// Render frame
+		vd.mutex.Lock()
+		defer vd.mutex.Unlock()
+
+		if vd.lastFrame != nil && vd.texture != nil && vd.renderer != nil {
+			// Convert image.Image to RGBA bytes
+			bounds := vd.lastFrame.Bounds()
+			width, height := bounds.Max.X, bounds.Max.Y
+
+			// We need raw pixels for SDL texture
+			// This is a bit inefficient, ideally we'd write directly to texture buffer
+			// or use a more efficient conversion
+			pixels := make([]byte, width*height*4)
+
+			// Simple conversion (slow)
+			// TODO: Optimize this
+			for y := 0; y < height; y++ {
+				for x := 0; x < width; x++ {
+					r, g, b, a := vd.lastFrame.At(x, y).RGBA()
+					idx := (y*width + x) * 4
+					pixels[idx] = byte(r >> 8)
+					pixels[idx+1] = byte(g >> 8)
+					pixels[idx+2] = byte(b >> 8)
+					pixels[idx+3] = byte(a >> 8)
+				}
+			}
+
+			vd.texture.Update(nil, unsafe.Pointer(&pixels[0]), width*4)
+			vd.renderer.Clear()
+			vd.renderer.Copy(vd.texture, nil, nil)
+			vd.renderer.Present()
+		}
+	})
 }
 
 // displayTerminalFrame displays frame information in terminal

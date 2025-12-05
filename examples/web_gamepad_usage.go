@@ -1,7 +1,7 @@
 // Example: How web interface can use the refactored pkg/gamepad
 // This file demonstrates the intended usage pattern for web handlers
 
-package main
+package examples
 
 import (
 	"log"

@@ -29,7 +29,7 @@ type CommanderInterface interface {
 	Backward(distance int) error
 	Clockwise(angle int) error
 	CounterClockwise(angle int) error
-	Flip(direction interface{}) error
+	Flip(direction string) error
 	Go(x, y, z, speed int) error
 	Curve(x1, y1, z1, x2, y2, z2, speed int) error
 
@@ -50,7 +50,7 @@ type CommanderInterface interface {
 	GetTof() (int, error)
 
 	// Video Commands
-	SetVideoFrameCallback(callback interface{})
+	SetVideoFrameCallback(callback func(transport.VideoFrame))
 	GetVideoFrameChannel() <-chan transport.VideoFrame
 }
 
@@ -407,12 +407,12 @@ func (sm *SafetyManager) CounterClockwise(angle int) error {
 	return sm.commander.CounterClockwise(angle)
 }
 
-func (sm *SafetyManager) Flip(direction interface{}) error {
+func (sm *SafetyManager) Flip(direction string) error {
 	if !sm.safetyEnabled || sm.emergencyMode {
 		return sm.commander.Flip(direction)
 	}
 
-	result := sm.validateFlipCommand(fmt.Sprintf("%v", direction))
+	result := sm.validateFlipCommand(direction)
 	if !result.Allowed {
 		return fmt.Errorf("safety check failed: %s", result.Reason)
 	}
@@ -514,7 +514,7 @@ func (sm *SafetyManager) GetTof() (int, error) {
 }
 
 // Video commands
-func (sm *SafetyManager) SetVideoFrameCallback(callback interface{}) {
+func (sm *SafetyManager) SetVideoFrameCallback(callback func(transport.VideoFrame)) {
 	sm.commander.SetVideoFrameCallback(callback)
 }
 

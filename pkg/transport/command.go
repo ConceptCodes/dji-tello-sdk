@@ -2,17 +2,14 @@ package transport
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
-	"strings"
 
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/config"
+	"github.com/conceptcodes/dji-tello-sdk-go/pkg/errors"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport/udp"
 )
-
-const host = "192.168.10.1:8889"
-const localCommandAddr = "0.0.0.0:8889"
-const commandRetries = 3
-const commandSendDelay = 200 * time.Millisecond
 
 // UDPClientInterface defines the interface for UDP client operations
 type UDPClientInterface interface {
@@ -21,19 +18,35 @@ type UDPClientInterface interface {
 	Close() error
 }
 
+// CommandConnection manages UDP communication with the Tello drone
 type CommandConnection struct {
-	client UDPClientInterface
-	mutex  sync.Mutex
+	config   config.TransportConfig
+	client   UDPClientInterface
+	mutex    sync.Mutex
 	useBound bool
 }
 
+// NewCommandConnection creates a new command connection with default configuration
 func NewCommandConnection() (*CommandConnection, error) {
-	client, err := udp.NewUDPClientWithLocalAddr(host, localCommandAddr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create UDP client for commands: %w", err)
+	return NewCommandConnectionWithConfig(config.DefaultTransportConfig())
+}
+
+// NewCommandConnectionWithConfig creates a new command connection with custom configuration
+func NewCommandConnectionWithConfig(cfg config.TransportConfig) (*CommandConnection, error) {
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		return nil, errors.WrapSDKError(err, errors.ErrConfigValidation, "CommandConnection",
+			"invalid transport configuration")
 	}
+
+	client, err := udp.NewUDPClientWithLocalAddr(cfg.DroneHost, cfg.LocalCommandAddr)
+	if err != nil {
+		return nil, errors.ConnectionError("CommandConnection", "create UDP client", err)
+	}
+
 	return &CommandConnection{
-		client: client,
+		config:   cfg,
+		client:   client,
 		useBound: true,
 	}, nil
 }
@@ -51,12 +64,12 @@ func (c *CommandConnection) reconnectWithLocal(bindToCommandPort bool) error {
 
 	localAddr := ""
 	if bindToCommandPort {
-		localAddr = localCommandAddr
+		localAddr = c.config.LocalCommandAddr
 	}
 
-	client, err := udp.NewUDPClientWithLocalAddr(host, localAddr)
+	client, err := udp.NewUDPClientWithLocalAddr(c.config.DroneHost, localAddr)
 	if err != nil {
-		return fmt.Errorf("failed to recreate UDP client for commands: %w", err)
+		return errors.ConnectionError("CommandConnection", "recreate UDP client", err)
 	}
 	c.client = client
 	c.useBound = bindToCommandPort
@@ -66,55 +79,63 @@ func (c *CommandConnection) reconnectWithLocal(bindToCommandPort bool) error {
 // NewCommandConnectionWithClient creates a CommandConnection with a custom UDP client (for testing)
 func NewCommandConnectionWithClient(client UDPClientInterface) *CommandConnection {
 	return &CommandConnection{
+		config: config.DefaultTransportConfig(),
 		client: client,
 	}
 }
 
+// SendCommand sends a command to the drone and returns the response
 func (c *CommandConnection) SendCommand(command string) (string, error) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
 	if c.client == nil {
-		return "", fmt.Errorf("UDP client is not initialized")
+		return "", errors.NewSDKError(errors.ErrConnectionFailed, "CommandConnection",
+			"UDP client is not initialized")
 	}
 
 	var lastErr error
 	data := []byte(command + "\r\n")
 	fallbackTried := false
 
-	for attempt := 1; attempt <= commandRetries; attempt++ {
+	for attempt := 1; attempt <= c.config.CommandRetries; attempt++ {
 		// Small delay before first attempt to give the socket a moment to stabilize after bind.
 		if attempt == 1 {
-			time.Sleep(commandSendDelay)
+			time.Sleep(c.config.CommandSendDelay)
 		}
 
 		if err := c.client.Send(data); err != nil {
-			lastErr = fmt.Errorf("failed to send command '%s': %w", command, err)
+			lastErr = errors.Wrapf(err, "failed to send command '%s'", command)
+
 			// Recreate the socket on transient network errors before retrying.
 			if isBrokenPipe(err) && !fallbackTried {
 				fallbackTried = true
 				if recErr := c.reconnectWithLocal(false); recErr != nil {
-					return "", fmt.Errorf("%v; additionally failed to rebuild command socket (ephemeral port): %w", lastErr, recErr)
+					return "", errors.WrapSDKError(recErr, errors.ErrConnectionFailed, "CommandConnection",
+						"failed to rebuild command socket (ephemeral port)")
 				}
 			} else {
 				if recErr := c.reconnect(); recErr != nil {
-					return "", fmt.Errorf("%v; additionally failed to reconnect command socket: %w", lastErr, recErr)
+					return "", errors.WrapSDKError(recErr, errors.ErrConnectionFailed, "CommandConnection",
+						"failed to reconnect command socket")
 				}
 			}
 			continue
 		}
 
-		response, err := c.client.Receive(2048, 7*time.Second)
+		response, err := c.client.Receive(2048, c.config.CommandTimeout)
 		if err != nil {
-			lastErr = fmt.Errorf("failed to receive response for command '%s': %w", command, err)
+			lastErr = errors.Wrapf(err, "failed to receive response for command '%s'", command)
 			if isBrokenPipe(err) && !fallbackTried {
 				fallbackTried = true
 				if recErr := c.reconnectWithLocal(false); recErr != nil {
-					return "", fmt.Errorf("%v; additionally failed to rebuild command socket (ephemeral port): %w", lastErr, recErr)
+					return "", errors.WrapSDKError(recErr, errors.ErrConnectionFailed, "CommandConnection",
+						"failed to rebuild command socket (ephemeral port)")
 				}
 			} else {
 				if recErr := c.reconnect(); recErr != nil {
-					return "", fmt.Errorf("%v; additionally failed to reconnect command socket: %w", lastErr, recErr)
+					return "", errors.WrapSDKError(recErr, errors.ErrConnectionFailed, "CommandConnection",
+						"failed to reconnect command socket")
 				}
 			}
 			continue
@@ -124,7 +145,8 @@ func (c *CommandConnection) SendCommand(command string) (string, error) {
 	}
 
 	if lastErr == nil {
-		lastErr = fmt.Errorf("failed to send command '%s': unknown error", command)
+		lastErr = errors.NewSDKError(errors.ErrCommandFailed, "CommandConnection",
+			fmt.Sprintf("failed to send command '%s': unknown error", command))
 	}
 	return "", lastErr
 }
@@ -140,5 +162,30 @@ func (c *CommandConnection) Close() error {
 	if c.client != nil {
 		return c.client.Close()
 	}
+	return nil
+}
+
+// GetConfig returns the current transport configuration
+func (c *CommandConnection) GetConfig() config.TransportConfig {
+	return c.config
+}
+
+// UpdateConfig updates the transport configuration
+func (c *CommandConnection) UpdateConfig(cfg config.TransportConfig) error {
+	if err := cfg.Validate(); err != nil {
+		return errors.WrapSDKError(err, errors.ErrConfigValidation, "CommandConnection",
+			"invalid transport configuration")
+	}
+
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	c.config = cfg
+
+	// Reconnect with new configuration if client exists
+	if c.client != nil {
+		return c.reconnect()
+	}
+
 	return nil
 }

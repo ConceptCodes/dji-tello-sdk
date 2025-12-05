@@ -1,6 +1,7 @@
 package web
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -171,6 +172,7 @@ func (ws *WebServer) setupSharedRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/connection/connect", ws.handleConnectionConnect)
 
 	// API endpoints
+	mux.HandleFunc("/api/csrf-token", ws.handleCSRFToken)
 	mux.HandleFunc("/api/telemetry", ws.handleTelemetry)
 	mux.HandleFunc("/api/status", ws.handleSystemStatus)
 	mux.HandleFunc("/api/appchips", ws.handleAppChips)
@@ -279,6 +281,11 @@ func (ws *WebServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 
+	// Generate CSRF token for this session
+	ws.mu.Lock()
+	csrfToken := ws.generateCSRFToken()
+	ws.mu.Unlock()
+
 	tmpl, err := template.ParseFiles("web/templates/index.html")
 	if err != nil {
 		utils.Logger.Errorf("Failed to parse index template: %v", err)
@@ -286,7 +293,12 @@ func (ws *WebServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = tmpl.Execute(w, nil)
+	// Pass CSRF token to template
+	templateData := map[string]interface{}{
+		"csrf_token": csrfToken,
+	}
+
+	err = tmpl.Execute(w, templateData)
 	if err != nil {
 		utils.Logger.Errorf("Failed to execute index template: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -1015,4 +1027,53 @@ func (ws *WebServer) validateCSRF(r *http.Request) bool {
 	}
 
 	return false
+}
+
+// generateCSRFToken generates a new CSRF token
+func (ws *WebServer) generateCSRFToken() string {
+	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	const tokenLength = 32
+
+	// Use crypto/rand for secure random generation
+	b := make([]byte, tokenLength)
+	rand.Read(b)
+	for i := range b {
+		b[i] = charset[b[i]%byte(len(charset))]
+	}
+
+	token := fmt.Sprintf("csrf_%d_%s", time.Now().UnixNano(), string(b))
+	ws.csrfTokens[token] = time.Now().Add(time.Hour)
+	return token
+}
+
+// cleanupExpiredCSRFTokens removes expired CSRF tokens
+func (ws *WebServer) cleanupExpiredCSRFTokens() {
+	ws.mu.Lock()
+	defer ws.mu.Unlock()
+
+	for token, expiry := range ws.csrfTokens {
+		if time.Since(expiry) > time.Hour {
+			delete(ws.csrfTokens, token)
+		}
+	}
+}
+
+// handleCSRFToken generates and returns a new CSRF token
+func (ws *WebServer) handleCSRFToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	ws.mu.Lock()
+	token := ws.generateCSRFToken()
+	ws.mu.Unlock()
+
+	response := map[string]interface{}{
+		"csrf_token": token,
+		"expires_in": "1h",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

@@ -171,10 +171,21 @@ const (
 	CommandAction CommandType = "action" // Discrete drone action
 )
 
+// CommandData is a union type for command data
+type CommandData interface {
+	isCommandData()
+}
+
+// RCValues implements CommandData
+func (r RCValues) isCommandData() {}
+
+// DroneAction implements CommandData
+func (d DroneAction) isCommandData() {}
+
 // Command represents a high-level drone command
 type Command struct {
 	Type CommandType `json:"type"`
-	Data interface{} `json:"data"` // RCValues for rc, DroneAction for action
+	Data CommandData `json:"data"` // RCValues for rc, DroneAction for action
 }
 
 // Mapper defines the interface for converting gamepad events to drone commands
@@ -208,9 +219,9 @@ const (
 
 // InputEvent represents a gamepad input event (legacy, kept for compatibility)
 type InputEvent struct {
-	Type      string      // "button_press", "button_release", "axis_change"
-	Input     interface{} // ButtonType or AxisType
-	Value     interface{} // bool for buttons, float64 for axes
+	Type      string  // "button_press", "button_release", "axis_change"
+	Input     string  // ButtonType or AxisType as string
+	Value     float64 // Normalized value: 0.0/1.0 for buttons, -1.0 to 1.0 for axes
 	Timestamp time.Time
 }
 

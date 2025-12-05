@@ -94,7 +94,7 @@ func TestVideoDisplayIsRunning(t *testing.T) {
 }
 
 func TestVideoDisplayGetStats(t *testing.T) {
-	display := NewVideoDisplay(DisplayTypeTerminal)
+	display := NewVideoDisplay(DisplayTypeWeb)
 
 	stats := display.GetStats()
 
@@ -104,7 +104,7 @@ func TestVideoDisplayGetStats(t *testing.T) {
 	assert.Contains(t, stats, "web_port")
 
 	assert.Equal(t, false, stats["is_running"])
-	assert.Equal(t, "terminal", stats["display_type"])
+	assert.Equal(t, "web", stats["display_type"])
 	assert.Equal(t, 8080, stats["web_port"])
 }
 
@@ -162,6 +162,6 @@ func TestVideoFormatConstants(t *testing.T) {
 }
 
 func TestVideoDisplayTypeConstants(t *testing.T) {
-	assert.Equal(t, VideoDisplayType("terminal"), DisplayTypeTerminal)
 	assert.Equal(t, VideoDisplayType("web"), DisplayTypeWeb)
+	assert.Equal(t, VideoDisplayType("native"), DisplayTypeNative)
 }

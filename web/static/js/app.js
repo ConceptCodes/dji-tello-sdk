@@ -49,8 +49,15 @@ class MissionControl {
     }
 
     setupCSRF() {
-        // Generate CSRF token
-        const csrfToken = this.generateCSRFToken();
+        // Get CSRF token from meta tag (server-generated)
+        const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+        let csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : null;
+        
+        // If no server token, generate a client-side one (for development)
+        if (!csrfToken) {
+            csrfToken = this.generateCSRFToken();
+            console.warn('No server CSRF token found, using client-generated token');
+        }
         
         // Set HTMX headers
         if (typeof htmx !== 'undefined') {

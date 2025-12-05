@@ -137,9 +137,20 @@ func (p *ConcurrentMLPipeline) Stop() error {
 	// Wait for all workers to finish
 	p.wg.Wait()
 
-	// Close channels
-	close(p.frameQueue)
-	close(p.resultQueue)
+	// Close channels safely
+	select {
+	case <-p.ctx.Done():
+		// Context already cancelled
+	default:
+		// Close channels
+		close(p.frameQueue)
+		close(p.resultQueue)
+	}
+
+	// Clean up object pools to prevent memory leaks
+	p.framePool = sync.Pool{}
+	p.resultPool = sync.Pool{}
+	p.batchBuffer = nil
 
 	p.running = false
 
@@ -405,7 +416,11 @@ func NewPipelineMetrics() *PipelineMetrics {
 
 // ProcessFrameOptimized adds a frame with adaptive rate control and pooling
 func (p *ConcurrentMLPipeline) ProcessFrameOptimized(frame *ml.EnhancedVideoFrame) error {
-	if !p.running {
+	p.mu.RLock()
+	running := p.running
+	p.mu.RUnlock()
+
+	if !running {
 		return fmt.Errorf("pipeline is not running")
 	}
 
@@ -417,7 +432,12 @@ func (p *ConcurrentMLPipeline) ProcessFrameOptimized(frame *ml.EnhancedVideoFram
 	}
 
 	// Try to reuse frame from pool
-	reusedFrame := p.framePool.Get()
+	var reusedFrame interface{}
+	if p.framePool.New != nil {
+		reusedFrame = p.framePool.Get()
+	}
+
+	var frameToSend *ml.EnhancedVideoFrame
 	if reusedFrame != nil {
 		// Copy data to reused frame
 		rf := reusedFrame.(*ml.EnhancedVideoFrame)
@@ -432,12 +452,13 @@ func (p *ConcurrentMLPipeline) ProcessFrameOptimized(frame *ml.EnhancedVideoFram
 		// Clear previous results
 		rf.MLResults = make(map[string]ml.MLResult)
 		rf.Processed = false
-
-		frame = rf
+		frameToSend = rf
+	} else {
+		frameToSend = frame
 	}
 
 	select {
-	case p.frameQueue <- frame:
+	case p.frameQueue <- frameToSend:
 		return nil
 	default:
 		// Queue is full, drop frame to maintain real-time performance

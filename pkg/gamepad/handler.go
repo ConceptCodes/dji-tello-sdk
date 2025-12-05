@@ -88,7 +88,11 @@ func (h *Handler) Start() error {
 	}
 
 	// Try to open the first available gamepad
-	if err := h.openGamepad(); err != nil {
+	var err error
+	sdl.Do(func() {
+		err = h.openGamepad()
+	})
+	if err != nil {
 		return fmt.Errorf("failed to open gamepad: %w", err)
 	}
 
@@ -112,14 +116,16 @@ func (h *Handler) Stop() error {
 	h.isRunning = false
 
 	// Close gamepad and cleanup SDL2
-	if h.gamepad != nil {
-		h.gamepad.Close()
-		h.gamepad = nil
-	}
-	if h.joystick != nil {
-		h.joystick.Close()
-		h.joystick = nil
-	}
+	sdl.Do(func() {
+		if h.gamepad != nil {
+			h.gamepad.Close()
+			h.gamepad = nil
+		}
+		if h.joystick != nil {
+			h.joystick.Close()
+			h.joystick = nil
+		}
+	})
 
 	utils.Logger.Info("Gamepad handler stopped")
 	return nil
@@ -166,20 +172,22 @@ func (h *Handler) ProcessEvents() {
 		return
 	}
 
-	// Update SDL2 events
-	for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
-		switch e := event.(type) {
-		case *sdl.ControllerAxisEvent:
-			h.handleAxisEvent(e)
-		case *sdl.ControllerButtonEvent:
-			h.handleButtonEvent(e)
-		case *sdl.ControllerDeviceEvent:
-			h.handleDeviceEvent(e)
+	sdl.Do(func() {
+		// Update SDL2 events
+		for event := sdl.PollEvent(); event != nil; event = sdl.PollEvent() {
+			switch e := event.(type) {
+			case *sdl.ControllerAxisEvent:
+				h.handleAxisEvent(e)
+			case *sdl.ControllerButtonEvent:
+				h.handleButtonEvent(e)
+			case *sdl.ControllerDeviceEvent:
+				h.handleDeviceEvent(e)
+			}
 		}
-	}
 
-	// Process continuous axes (like joysticks)
-	h.processAxes()
+		// Process continuous axes (like joysticks)
+		h.processAxes()
+	})
 
 	// Generate commands from current state
 	commands, err := h.mapper.MapState(h.state)

@@ -84,18 +84,23 @@ func (w *Worker) Start(ctx context.Context) error {
 // Stop stops the worker
 func (w *Worker) Stop() error {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	if !w.running {
+		w.mu.Unlock()
 		return nil
 	}
-
-	close(w.quit)
 	w.running = false
+	w.mu.Unlock()
 
-	// Close channels
-	close(w.inputChan)
-	close(w.outputChan)
+	// Signal quit without closing channel (goroutine will close it)
+	select {
+	case <-w.quit:
+		// Already closed
+	default:
+		close(w.quit)
+	}
+
+	// Don't close input/output channels here - let the run goroutine handle it
+	// to avoid panic from concurrent reads/writes
 
 	return nil
 }
@@ -147,13 +152,23 @@ func (w *Worker) IsRunning() bool {
 
 // run is the main worker loop
 func (w *Worker) run(ctx context.Context) {
+	defer func() {
+		// Safely close channels when goroutine exits
+		close(w.inputChan)
+		close(w.outputChan)
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-w.quit:
 			return
-		case frame := <-w.inputChan:
+		case frame, ok := <-w.inputChan:
+			if !ok {
+				// Channel closed, exit
+				return
+			}
 			if frame == nil {
 				continue
 			}

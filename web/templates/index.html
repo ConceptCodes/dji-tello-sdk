@@ -27,6 +27,9 @@
     </script>
     <link rel="stylesheet" href="/static/css/main.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    {{if .csrf_token}}
+    <meta name="csrf-token" content="{{.csrf_token}}">
+    {{end}}
 </head>
 <body>
     <!-- App Bar -->
