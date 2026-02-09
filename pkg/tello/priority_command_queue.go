@@ -22,6 +22,9 @@ type CommandRequest struct {
 	ResponseChan chan CommandResponse
 }
 
+// PriorityCommandQueue manages command execution with priority-based ordering.
+// High-priority commands (read operations) are processed before low-priority commands (control operations).
+// It is safe for concurrent use by multiple goroutines.
 type PriorityCommandQueue struct {
 	highPriority []CommandRequest
 	lowPriority  []CommandRequest
@@ -30,6 +33,7 @@ type PriorityCommandQueue struct {
 	closed       bool
 }
 
+// NewPriorityCommandQueue creates a new priority command queue with empty high and low priority buffers.
 func NewPriorityCommandQueue() *PriorityCommandQueue {
 	pcq := &PriorityCommandQueue{
 		highPriority: make([]CommandRequest, 0),
