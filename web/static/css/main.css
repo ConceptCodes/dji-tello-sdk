@@ -1,34 +1,57 @@
-/* Mission Control UI - Design System */
+/* Mission Control UI - Drone Forge Tactical Theme */
+/* Military Command Center Aesthetic */
 
-/* CSS Variables - Design Tokens */
+/* ============================================
+   CSS VARIABLES - TACTICAL DESIGN TOKENS
+   ============================================ */
 :root {
   color-scheme: dark;
-  /* Colors */
-  --bg: #05080d;
-  --bg2: #0c1116;
-  --card: #0f151c;
-  --line: rgba(255, 255, 255, 0.1);
-  --text: #d9e5f0;
-  --muted: #73808d;
+  
+  /* Tactical Color Palette - Gunmetal & Cyan */
+  --bg: #0a0c0f;
+  --bg2: #0d1117;
+  --card: #111820;
+  --line: rgba(17, 213, 255, 0.15);
+  --text: #e8f4f8;
+  --muted: #5a6a7c;
+  
+  /* Primary Accents - Electric Cyan */
   --teal: #11d5ff;
+  --teal-glow: rgba(17, 213, 255, 0.5);
+  --teal-dim: rgba(17, 213, 255, 0.3);
   --accent: #12bfa3;
-  --ok: #13d9bf;
-  --warn: #f5c451;
-  --err: #ff5f74;
-  --border-strong: rgba(255, 255, 255, 0.2);
-  --border-bold: rgba(255, 255, 255, 0.15);
-  --border-default: rgba(255, 255, 255, 0.12);
-  --border-soft: rgba(255, 255, 255, 0.08);
-  --border-muted: rgba(255, 255, 255, 0.05);
-  --border-faint: rgba(255, 255, 255, 0.03);
-  --surface-film: rgba(255, 255, 255, 0.01);
-  --surface-haze: rgba(255, 255, 255, 0.02);
-  --surface-muted: rgba(255, 255, 255, 0.04);
-  --video-meta-bg: rgba(0, 0, 0, 0.25);
-  --overlay-backdrop: rgba(0, 0, 0, 0.7);
-  --shadow-card: 0 12px 35px rgba(0, 0, 0, 0.4);
-  --shadow-toast: 0 4px 12px rgba(0, 0, 0, 0.3);
-
+  --accent-glow: rgba(18, 191, 163, 0.4);
+  
+  /* Status Colors - Military Style */
+  --ok: #00ff9d;
+  --ok-glow: rgba(0, 255, 157, 0.4);
+  --warn: #f5a623;
+  --warn-glow: rgba(245, 166, 35, 0.4);
+  --err: #ff2d55;
+  --err-glow: rgba(255, 45, 85, 0.4);
+  
+  /* Border System - Cyan Tinted */
+  --border-strong: rgba(17, 213, 255, 0.3);
+  --border-bold: rgba(17, 213, 255, 0.2);
+  --border-default: rgba(17, 213, 255, 0.12);
+  --border-soft: rgba(17, 213, 255, 0.08);
+  --border-muted: rgba(17, 213, 255, 0.05);
+  --border-faint: rgba(17, 213, 255, 0.03);
+  
+  /* Surface Effects */
+  --surface-film: rgba(17, 213, 255, 0.02);
+  --surface-haze: rgba(17, 213, 255, 0.04);
+  --surface-muted: rgba(17, 213, 255, 0.06);
+  --video-meta-bg: rgba(0, 0, 0, 0.6);
+  --overlay-backdrop: rgba(10, 12, 15, 0.85);
+  
+  /* Shadows & Glows */
+  --shadow-card: 0 0 40px rgba(17, 213, 255, 0.1), 0 12px 35px rgba(0, 0, 0, 0.5);
+  --shadow-toast: 0 4px 20px rgba(17, 213, 255, 0.15);
+  --glow-cyan: 0 0 20px rgba(17, 213, 255, 0.4);
+  --glow-amber: 0 0 20px rgba(245, 166, 35, 0.4);
+  --glow-red: 0 0 20px rgba(255, 45, 85, 0.4);
+  
   /* Spacing Scale */
   --space-1: 4px;
   --space-2: 8px;
@@ -36,17 +59,22 @@
   --space-4: 16px;
   --space-6: 24px;
 
-  /* Typography */
-  --font-sans: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
-  --font-mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
+  /* Typography - Military Tech Fonts */
+  --font-display: 'Chakra Petch', 'IBM Plex Mono', sans-serif;
+  --font-sans: 'Rajdhani', 'IBM Plex Mono', 'SF Mono', monospace;
+  --font-mono: 'IBM Plex Mono', 'SF Mono', 'Cascadia Code', monospace;
 
-  /* Border Radius */
-  --radius-card: 10px;
-  --radius-button: 8px;
+  /* Border Radius - Angular for tactical */
+  --radius-card: 4px;
+  --radius-button: 2px;
 
   /* Layout */
   --sidebar-left: 300px;
   --sidebar-right: 320px;
+  
+  /* Animation Timing */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.3s ease;
 }
 
 :root[data-theme="light"] {
@@ -1024,4 +1052,285 @@ body {
     border: none;
     border-bottom: 1px solid var(--line);
   }
+}
+
+/* ============================================
+   TACTICAL CSS ENHANCEMENTS
+   ============================================ */
+
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image:
+    linear-gradient(var(--border-faint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-faint) 1px, transparent 1px);
+  background-size: 50px 50px;
+  background-position: center center;
+  opacity: 0.5;
+  pointer-events: none;
+  z-index: -1;
+  mask-image: radial-gradient(ellipse at center, black 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 40%, transparent 100%);
+}
+
+.video-surface::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 0, 0, 0.1) 0px,
+    rgba(0, 0, 0, 0.1) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+  pointer-events: none;
+  z-index: 2;
+  opacity: 0.6;
+}
+
+.card::before,
+.card::after {
+  content: '';
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-color: var(--teal);
+  border-style: solid;
+  transition: border-color 0.3s ease;
+}
+
+.card::before {
+  top: 0;
+  left: 0;
+  border-width: 2px 0 0 2px;
+  border-top-left-radius: var(--radius-card);
+}
+
+.card::after {
+  bottom: 0;
+  right: 0;
+  border-width: 0 2px 2px 0;
+  border-bottom-right-radius: var(--radius-card);
+}
+
+.card:hover::before,
+.card:hover::after {
+  border-color: var(--accent);
+}
+
+#app-bar {
+  box-shadow: 0 0 20px var(--teal-glow), 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.chip-mode.chip-recording {
+  animation: recordingPulse 2s infinite;
+}
+
+.chip-mode.chip-recording::before {
+  animation: recordingDot 2s infinite;
+  background: var(--err) !important;
+  box-shadow: 0 0 10px var(--err-glow), 0 0 20px var(--err-glow);
+}
+
+@keyframes recordingPulse {
+  0%, 100% {
+    box-shadow: 0 0 5px var(--err-glow);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 20px var(--err-glow), 0 0 30px var(--err-glow);
+    transform: scale(1.02);
+  }
+}
+
+@keyframes recordingDot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(0.8);
+  }
+}
+
+.live-dot {
+  animation: livePulse 1.5s infinite;
+  box-shadow: 0 0 10px var(--err-glow);
+}
+
+@keyframes livePulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 10px var(--err-glow), 0 0 20px var(--err-glow);
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 5px var(--err-glow);
+  }
+}
+
+.detection-box {
+  box-shadow: 0 0 15px var(--teal-glow), inset 0 0 20px rgba(17, 213, 255, 0.1);
+}
+
+.detection-box::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  border: 1px solid var(--teal);
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.detection-box:hover::before {
+  opacity: 1;
+}
+
+.detection-box.detection-matched {
+  box-shadow: 0 0 20px var(--ok-glow), 0 0 30px var(--ok-glow), inset 0 0 25px rgba(0, 255, 157, 0.15);
+  border-color: var(--ok);
+}
+
+.overlay-hud,
+.overlay-ministats {
+  backdrop-filter: blur(8px) saturate(180%);
+  -webkit-backdrop-filter: blur(8px) saturate(180%);
+  background: rgba(10, 12, 15, 0.6);
+  border: 1px solid rgba(17, 213, 255, 0.2);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 20px var(--teal-glow);
+}
+
+.overlay-hud {
+  text-shadow: 0 0 10px var(--teal-glow);
+}
+
+.toast {
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.toast.error {
+  box-shadow: 0 0 20px var(--err-glow), 0 4px 25px rgba(255, 45, 85, 0.2);
+  border-left: 3px solid var(--err);
+}
+
+.toast.success {
+  box-shadow: 0 0 20px var(--ok-glow), 0 4px 25px rgba(0, 255, 157, 0.2);
+  border-left: 3px solid var(--ok);
+}
+
+.toast.warning {
+  box-shadow: 0 0 20px var(--warn-glow), 0 4px 25px rgba(245, 166, 35, 0.2);
+  border-left: 3px solid var(--warn);
+}
+
+.telemetry-value {
+  text-shadow: 0 0 5px var(--teal-glow);
+}
+
+.telemetry-value.tone-ok {
+  text-shadow: 0 0 8px var(--ok-glow), 0 0 15px var(--ok-glow);
+}
+
+.telemetry-value.tone-warn {
+  text-shadow: 0 0 8px var(--warn-glow);
+}
+
+.telemetry-value.tone-err {
+  text-shadow: 0 0 8px var(--err-glow);
+}
+
+.chip,
+.pill {
+  text-shadow: 0 0 5px var(--border-strong);
+}
+
+.chip.chip-compact {
+  box-shadow: 0 0 10px rgba(17, 213, 255, 0.3), inset 0 0 10px rgba(17, 213, 255, 0.1);
+}
+
+.chip.chip-mode {
+  box-shadow: 0 0 10px rgba(18, 191, 163, 0.3), inset 0 0 10px rgba(18, 191, 163, 0.1);
+}
+
+.chip.chip-warning {
+  box-shadow: 0 0 10px rgba(245, 166, 35, 0.3), inset 0 0 10px rgba(245, 166, 35, 0.1);
+}
+
+.control-btn.primary {
+  box-shadow: 0 0 15px var(--teal-glow), 0 0 25px var(--teal-glow);
+  transition: box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+.control-btn.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 0 25px var(--teal-glow), 0 0 40px var(--teal-glow), 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.control-btn.primary.recording {
+  box-shadow: 0 0 15px var(--err-glow), 0 0 25px var(--err-glow);
+}
+
+.control-btn.primary.recording:hover:not(:disabled) {
+  box-shadow: 0 0 25px var(--err-glow), 0 0 40px var(--err-glow), 0 4px 15px rgba(0, 0, 0, 0.3);
+  transform: translateY(-2px);
+}
+
+.icon-btn:hover {
+  box-shadow: 0 0 10px var(--teal-glow);
+  transform: translateY(-1px);
+}
+
+.panel {
+  border: 1px solid var(--border-bold);
+  position: relative;
+  overflow: hidden;
+}
+
+.panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--teal), transparent);
+  opacity: 0.5;
+}
+
+.crosshair-line {
+  box-shadow: 0 0 8px var(--teal-glow);
+}
+
+.crosshair-corner {
+  box-shadow: 0 0 10px var(--teal-glow);
+}
+
+.video-frame {
+  filter: drop-shadow(0 0 10px rgba(17, 213, 255, 0.2));
+}
+
+@keyframes loading {
+  0% { background-position: 200% 0; box-shadow: 0 0 20px var(--teal-glow); }
+  100% { background-position: -200% 0; box-shadow: 0 0 10px var(--teal-glow); }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--card) 25%, var(--bg2) 50%, var(--card) 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
 }
