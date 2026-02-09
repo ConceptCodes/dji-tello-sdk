@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"image/color"
@@ -73,7 +74,7 @@ func (vsl *VideoStreamListener) Start() error {
 		return fmt.Errorf("video stream listener server is not initialized")
 	}
 	utils.Logger.Infof("Starting Tello video stream listener on %s", vsl.server.Addr)
-	return vsl.server.Start()
+	return vsl.server.Start(context.Background())
 }
 
 func (vsl *VideoStreamListener) Stop() {

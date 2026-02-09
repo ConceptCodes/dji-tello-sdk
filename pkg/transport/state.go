@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"fmt"
 	"net"
 
@@ -41,7 +42,7 @@ func (sl *StateListener) Start() error {
 		return fmt.Errorf("state listener server is not initialized")
 	}
 	utils.Logger.Infof("Starting Tello state listener on %s", sl.server.Addr)
-	return sl.server.Start()
+	return sl.server.Start(context.Background())
 }
 
 func (sl *StateListener) Stop() {
