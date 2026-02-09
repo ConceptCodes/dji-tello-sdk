@@ -566,7 +566,7 @@ func calculateTotalSizePtr(modelList []*models.ModelInfo) int64 {
 // createSchemaFiles creates the schema files in the configs/schemas directory
 func createSchemaFiles(configDir string) error {
 	schemaDir := filepath.Join(configDir, "schemas")
-	if err := os.MkdirAll(schemaDir, 0755); err != nil {
+	if err := os.MkdirAll(schemaDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create schemas directory: %w", err)
 	}
 
@@ -649,7 +649,7 @@ func createSchemaFiles(configDir string) error {
 
 	for filename, content := range schemaFiles {
 		schemaPath := filepath.Join(schemaDir, filename)
-		if err := os.WriteFile(schemaPath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(schemaPath, []byte(content), 0o644); err != nil {
 			return fmt.Errorf("failed to write schema file %s: %w", filename, err)
 		}
 	}

@@ -95,7 +95,7 @@ type DownloadProgress struct {
 
 // NewModelManager creates a new model manager
 func NewModelManager(cacheDir string) (*ModelManager, error) {
-	if err := os.MkdirAll(cacheDir, 0755); err != nil {
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create cache directory: %w", err)
 	}
 

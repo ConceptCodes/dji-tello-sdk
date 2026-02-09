@@ -129,7 +129,7 @@ func (cm *ConfigManager) SaveMLConfig(config *ml.MLConfig, filename string) erro
 
 	// Save to file
 	configPath := filepath.Join(cm.configDir, filename)
-	if err := os.WriteFile(configPath, configBytes, 0644); err != nil {
+	if err := os.WriteFile(configPath, configBytes, 0o644); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
@@ -227,7 +227,7 @@ func (cm *ConfigManager) GetDefaultMLConfig() *ml.MLConfig {
 // CreateDefaultConfigs creates default configuration files
 func (cm *ConfigManager) CreateDefaultConfigs() error {
 	// Create directories if they don't exist
-	if err := os.MkdirAll(filepath.Join(cm.configDir, "schemas"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cm.configDir, "schemas"), 0o755); err != nil {
 		return fmt.Errorf("failed to create schemas directory: %w", err)
 	}
 
@@ -262,7 +262,7 @@ func (cm *ConfigManager) CreateDefaultConfigs() error {
 		}
 
 		configPath := filepath.Join(cm.configDir, filename)
-		if err := os.WriteFile(configPath, configBytes, 0644); err != nil {
+		if err := os.WriteFile(configPath, configBytes, 0o644); err != nil {
 			return fmt.Errorf("failed to save default processor config %s: %w", filename, err)
 		}
 	}
