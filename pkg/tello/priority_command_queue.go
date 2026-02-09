@@ -1,6 +1,7 @@
 package tello
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
@@ -105,36 +106,46 @@ func (pcq *PriorityCommandQueue) EnqueueWithPriority(command string, priority in
 	}
 }
 
-// Dequeue returns the next command request, prioritizing high-priority commands
-func (pcq *PriorityCommandQueue) Dequeue() (CommandRequest, bool) {
-	pcq.mutex.Lock()
-	defer pcq.mutex.Unlock()
+// Dequeue returns the next command request, prioritizing high-priority commands.
+// Returns false if the queue is closed or context is cancelled.
+func (pcq *PriorityCommandQueue) Dequeue(ctx context.Context) (CommandRequest, bool) {
+	for {
+		pcq.mutex.Lock()
 
-	// Wait for any command to be available or queue to be closed
-	for len(pcq.highPriority) == 0 && len(pcq.lowPriority) == 0 && !pcq.closed {
+		// Check if we should exit due to context cancellation
+		select {
+		case <-ctx.Done():
+			pcq.mutex.Unlock()
+			return CommandRequest{}, false
+		default:
+			// Continue
+		}
+
+		// If closed and empty, return false
+		if pcq.closed && len(pcq.highPriority) == 0 && len(pcq.lowPriority) == 0 {
+			pcq.mutex.Unlock()
+			return CommandRequest{}, false
+		}
+
+		// If we have work, process it (high priority first)
+		if len(pcq.highPriority) > 0 {
+			req := pcq.highPriority[0]
+			pcq.highPriority = pcq.highPriority[1:]
+			pcq.mutex.Unlock()
+			return req, true
+		}
+
+		if len(pcq.lowPriority) > 0 {
+			req := pcq.lowPriority[0]
+			pcq.lowPriority = pcq.lowPriority[1:]
+			pcq.mutex.Unlock()
+			return req, true
+		}
+
+		// Wait for signal (queue is empty)
 		pcq.cond.Wait()
+		pcq.mutex.Unlock()
 	}
-
-	// If closed and empty, return false
-	if pcq.closed && len(pcq.highPriority) == 0 && len(pcq.lowPriority) == 0 {
-		return CommandRequest{}, false
-	}
-
-	// Process high-priority commands first
-	if len(pcq.highPriority) > 0 {
-		req := pcq.highPriority[0]
-		pcq.highPriority = pcq.highPriority[1:]
-		return req, true
-	}
-
-	// Process low-priority commands
-	if len(pcq.lowPriority) > 0 {
-		req := pcq.lowPriority[0]
-		pcq.lowPriority = pcq.lowPriority[1:]
-		return req, true
-	}
-
-	return CommandRequest{}, false
 }
 
 // Size returns the total number of queued commands
