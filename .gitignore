@@ -1,7 +1,7 @@
 .DS_Store
 coverage.out
 bin
-models/
+/models/
 lib/
 
 .sisyphus
