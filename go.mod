@@ -16,6 +16,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-localereader v0.0.1 // indirect
@@ -45,4 +46,6 @@ require (
 	github.com/veandco/go-sdl2 v0.4.40
 	github.com/xeipuuv/gojsonschema v1.2.0
 	github.com/yalue/onnxruntime_go v1.22.0
+	go.uber.org/goleak v1.3.0
+	golang.org/x/sync v0.19.0
 )
