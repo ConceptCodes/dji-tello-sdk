@@ -10,6 +10,7 @@ import (
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/models"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/pipeline"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
+	"golang.org/x/sync/errgroup"
 )
 
 // MLVideoIntegration integrates ML processing with the video stream
@@ -25,7 +26,7 @@ type MLVideoIntegration struct {
 	// Synchronization
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	g      *errgroup.Group
 	mu     sync.RWMutex
 
 	// State management
@@ -85,9 +86,11 @@ func (mvi *MLVideoIntegration) Start() error {
 		return fmt.Errorf("failed to start video listener: %w", err)
 	}
 
-	// Start frame processing goroutine
-	mvi.wg.Add(1)
-	go mvi.processFrames()
+	// Start frame processing goroutine with errgroup
+	mvi.g, _ = errgroup.WithContext(mvi.ctx)
+	mvi.g.Go(func() error {
+		return mvi.processFrames()
+	})
 
 	mvi.running = true
 	utils.Logger.Info("ML video integration started successfully")
@@ -115,8 +118,12 @@ func (mvi *MLVideoIntegration) Stop() error {
 		utils.Logger.Errorf("Error stopping ML pipeline: %v", err)
 	}
 
-	// Wait for all goroutines to finish
-	mvi.wg.Wait()
+	// Wait for all goroutines to finish and capture any errors
+	if mvi.g != nil {
+		if err := mvi.g.Wait(); err != nil {
+			utils.Logger.Errorf("Error in frame processing: %v", err)
+		}
+	}
 
 	mvi.running = false
 	utils.Logger.Info("ML video integration stopped")
@@ -125,20 +132,18 @@ func (mvi *MLVideoIntegration) Stop() error {
 }
 
 // processFrames processes video frames through the ML pipeline
-func (mvi *MLVideoIntegration) processFrames() {
-	defer mvi.wg.Done()
-
+func (mvi *MLVideoIntegration) processFrames() error {
 	frameChan := mvi.videoListener.GetFrameChannel()
 
 	for {
 		select {
 		case <-mvi.ctx.Done():
-			return
+			return nil
 
 		case frame, ok := <-frameChan:
 			if !ok {
 				utils.Logger.Info("Video frame channel closed")
-				return
+				return nil
 			}
 
 			// Convert to enhanced frame for ML processing

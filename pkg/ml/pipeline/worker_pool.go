@@ -144,11 +144,8 @@ func (w *Worker) IsRunning() bool {
 
 // run is the main worker loop
 func (w *Worker) run(ctx context.Context) {
-	defer func() {
-		// Safely close channels when goroutine exits
-		close(w.inputChan)
-		close(w.outputChan)
-	}()
+	// Channels are managed by WorkerPool - don't close them here
+	// to avoid "close of closed channel" panic
 
 	for {
 		select {
@@ -227,14 +224,24 @@ func (wp *WorkerPool) Start(ctx context.Context) error {
 
 	wp.running = true
 
-	// Recreate done channel if it was closed
 	select {
 	case <-wp.done:
 		wp.done = make(chan struct{})
 	default:
 	}
 
-	// Start dispatcher
+	select {
+	case <-wp.jobQueue:
+		wp.jobQueue = make(chan *ml.EnhancedVideoFrame, wp.maxWorkers*10)
+	default:
+	}
+
+	select {
+	case <-wp.workerQueue:
+		wp.workerQueue = make(chan chan *ml.EnhancedVideoFrame, wp.maxWorkers)
+	default:
+	}
+
 	wp.wg.Add(1)
 	go wp.dispatcher(ctx)
 
@@ -265,9 +272,20 @@ func (wp *WorkerPool) Stop() error {
 	// Wait for dispatcher to finish before closing channels
 	wp.wg.Wait()
 
-	// Close channels
 	close(wp.jobQueue)
 	close(wp.workerQueue)
+
+	// Pool manages worker channel lifecycle to prevent "close of closed channel" panic
+	for _, worker := range wp.workers {
+		close(worker.inputChan)
+		close(worker.outputChan)
+	}
+
+	// Clear workers slice - channels are closed, workers cannot be reused
+	// They must be recreated when pool is restarted
+	wp.mu.Lock()
+	wp.workers = wp.workers[:0]
+	wp.mu.Unlock()
 
 	return nil
 }
