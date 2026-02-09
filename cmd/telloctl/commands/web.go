@@ -77,9 +77,14 @@ Examples:
 				fmt.Println("✅ ML pipeline started")
 			}
 
-			frameChan := drone.GetVideoFrameChannel()
-			if frameChan == nil {
-				return fmt.Errorf("failed to get video frame channel")
+			var frameChan <-chan transport.VideoFrame
+			if drone == nil {
+				frameChan = make(chan transport.VideoFrame)
+			} else {
+				frameChan = drone.GetVideoFrameChannel()
+				if frameChan == nil {
+					return fmt.Errorf("failed to get video frame channel")
+				}
 			}
 
 			// Create channels for fan-out

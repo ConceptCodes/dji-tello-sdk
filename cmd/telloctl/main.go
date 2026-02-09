@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -45,6 +46,16 @@ func newSetCmd(drone tello.TelloCommander) *cobra.Command {
 	return setCmd
 }
 
+func isWebCommand(args []string) bool {
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg == "web"
+	}
+	return false
+}
+
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "telloctl",
@@ -54,16 +65,23 @@ func main() {
 	// Create drone commander with default configuration
 	drone, err := tello.InitializeWithOptions()
 	if err != nil {
-		utils.Logger.Errorf("Error initializing Tello commander: %v", err)
-		os.Exit(1)
+		if isWebCommand(os.Args[1:]) {
+			utils.Logger.Warnf("Web interface starting without drone connection: %v", err)
+			drone = nil
+		} else {
+			utils.Logger.Errorf("Error initializing Tello commander: %v", err)
+			os.Exit(1)
+		}
 	}
 
 	// Add shutdown handling
-	defer func() {
-		if err := drone.Shutdown(); err != nil {
-			utils.Logger.Errorf("Error shutting down drone: %v", err)
-		}
-	}()
+	if drone != nil {
+		defer func() {
+			if err := drone.Shutdown(); err != nil {
+				utils.Logger.Errorf("Error shutting down drone: %v", err)
+			}
+		}()
+	}
 
 	// Add all commands
 	rootCmd.AddCommand(
