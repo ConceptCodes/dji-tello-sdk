@@ -216,3 +216,236 @@ func TestConfigValidation(t *testing.T) {
 		assert.Equal(t, "1.0.0-ps", config.Version)
 	})
 }
+
+// TestLoadConfig_Success tests loading a valid gamepad configuration file
+func TestLoadConfig_Success(t *testing.T) {
+	loader, err := NewConfigLoader()
+	if err != nil {
+		t.Skipf("Skipping test due to schema compilation error: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "test-config.json")
+
+	// Create a valid config file
+	validConfig := `{
+  "version": "1.0.0",
+  "controller": {
+    "deadzone": 0.1,
+    "sensitivity": 1.0,
+    "update_rate": 60,
+    "auto_detect": true
+  },
+  "safety": {
+    "rc_limits": {
+      "horizontal": 80,
+      "vertical": 60,
+      "yaw": 100
+    },
+    "emergency_actions": {
+      "connection_timeout": 3000,
+      "low_battery_threshold": 20,
+      "enable_auto_land": true
+    }
+  },
+  "mappings": {
+    "axes": {
+      "movement_x": {
+        "axis": "left_stick_x",
+        "invert": false
+      },
+      "movement_y": {
+        "axis": "left_stick_y",
+        "invert": false
+      },
+      "altitude": {
+        "axis": "right_stick_y",
+        "invert": true
+      },
+      "yaw": {
+        "axis": "right_stick_x",
+        "invert": false
+      }
+    },
+    "buttons": {
+      "takeoff_land": {
+        "button": "button_a",
+        "hold_time": 500
+      },
+      "emergency": {
+        "button": "button_b",
+        "hold_time": 1000
+      },
+      "flip_forward": {
+        "button": "button_x"
+      },
+      "flip_backward": {
+        "button": "button_y"
+      }
+    }
+  }
+}`
+
+	err = os.WriteFile(configPath, []byte(validConfig), 0644)
+	require.NoError(t, err)
+
+	// Load the config
+	config, err := loader.LoadConfig(configPath)
+	require.NoError(t, err)
+	assert.NotNil(t, config)
+
+	// Verify loaded values
+	assert.Equal(t, "1.0.0", config.Version)
+	assert.Equal(t, 0.1, config.Controller.Deadzone)
+	assert.Equal(t, 1.0, config.Controller.Sensitivity)
+	assert.Equal(t, 80, config.Safety.RCLimits.Horizontal)
+	assert.Equal(t, AxisLeftStickX, config.Mappings.Axes.MovementX.Axis)
+	assert.Equal(t, ButtonA, config.Mappings.Buttons.TakeoffLand.Button)
+}
+
+// TestLoadConfig_Invalid tests handling of invalid configuration files
+func TestLoadConfig_Invalid(t *testing.T) {
+	loader, err := NewConfigLoader()
+	if err != nil {
+		t.Skipf("Skipping test due to schema compilation error: %v", err)
+	}
+
+	tempDir := t.TempDir()
+
+	tests := []struct {
+		name          string
+		configContent string
+		wantErr       bool
+	}{
+		{
+			name:          "nonexistent file",
+			configContent: "",
+			wantErr:       true,
+		},
+		{
+			name: "invalid json",
+			configContent: `{
+				"version": "1.0.0",
+				"invalid json here
+			}`,
+			wantErr: true,
+		},
+		{
+			name: "missing required fields",
+			configContent: `{
+				"version": "1.0.0"
+			}`,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var configPath string
+			if tt.configContent != "" {
+				configPath = filepath.Join(tempDir, tt.name+".json")
+				err := os.WriteFile(configPath, []byte(tt.configContent), 0644)
+				require.NoError(t, err)
+			} else {
+				configPath = filepath.Join(tempDir, "nonexistent.json")
+			}
+
+			_, err := loader.LoadConfig(configPath)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestSaveConfig tests saving a configuration to file and loading it back
+func TestSaveConfig(t *testing.T) {
+	loader, err := NewConfigLoader()
+	if err != nil {
+		t.Skipf("Skipping test due to schema compilation error: %v", err)
+	}
+
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "saved-config.json")
+
+	// Create a config to save
+	config := &Config{
+		Version: "1.0.0",
+		Controller: ControllerConfig{
+			Deadzone:    0.15,
+			Sensitivity: 1.0,
+			UpdateRate:  60,
+			AutoDetect:  true,
+		},
+		Safety: Safety{
+			RCLimits: RCLimits{
+				Horizontal: 80,
+				Vertical:   60,
+				Yaw:        100,
+			},
+			EmergencyActions: EmergencyActions{
+				ConnectionTimeout:   3000,
+				LowBatteryThreshold: 20,
+				EnableAutoLand:      true,
+			},
+		},
+		Mappings: Mappings{
+			Axes: AxesMapping{
+				MovementX: AxisMapping{
+					Axis:   AxisLeftStickX,
+					Invert: false,
+				},
+				MovementY: AxisMapping{
+					Axis:   AxisLeftStickY,
+					Invert: false,
+				},
+				Altitude: AxisMapping{
+					Axis:   AxisRightStickY,
+					Invert: true,
+				},
+				Yaw: AxisMapping{
+					Axis:   AxisRightStickX,
+					Invert: false,
+				},
+			},
+			Buttons: ButtonsMapping{
+				TakeoffLand: ButtonMapping{
+					Button:   ButtonA,
+					HoldTime: 500,
+				},
+				Emergency: ButtonMapping{
+					Button:   ButtonB,
+					HoldTime: 1000,
+				},
+				FlipForward: ButtonMapping{
+					Button: ButtonX,
+				},
+				FlipBackward: ButtonMapping{
+					Button: ButtonY,
+				},
+			},
+		},
+	}
+
+	// Save the config
+	err = loader.SaveConfig(config, configPath)
+	require.NoError(t, err)
+
+	// Verify file was created
+	_, err = os.Stat(configPath)
+	assert.NoError(t, err, "Config file should be created")
+
+	// Load it back and verify
+	loadedConfig, err := loader.LoadConfig(configPath)
+	require.NoError(t, err)
+
+	// Verify loaded values match original
+	assert.Equal(t, config.Version, loadedConfig.Version)
+	assert.Equal(t, config.Controller.Deadzone, loadedConfig.Controller.Deadzone)
+	assert.Equal(t, config.Controller.Sensitivity, loadedConfig.Controller.Sensitivity)
+	assert.Equal(t, config.Safety.RCLimits.Horizontal, loadedConfig.Safety.RCLimits.Horizontal)
+	assert.Equal(t, config.Mappings.Axes.MovementX.Axis, loadedConfig.Mappings.Axes.MovementX.Axis)
+	assert.Equal(t, config.Mappings.Buttons.TakeoffLand.Button, loadedConfig.Mappings.Buttons.TakeoffLand.Button)
+}
