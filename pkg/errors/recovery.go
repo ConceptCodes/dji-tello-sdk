@@ -175,18 +175,22 @@ func PanicToError(r interface{}, component, operation string) error {
 		WithMetadata("panic", "true")
 }
 
-// Must panics if error is not nil, otherwise returns value
-func Must[T any](value T, err error) T {
+// Must returns the value if err is nil, otherwise returns the zero value and the error.
+// Unlike MustWithMessage, this does not panic - it returns errors gracefully for production safety.
+func Must[T any](value T, err error) (T, error) {
 	if err != nil {
-		panic(err)
+		var zero T
+		return zero, err
 	}
-	return value
+	return value, nil
 }
 
-// MustWithMessage panics with custom message if error is not nil
-func MustWithMessage[T any](value T, err error, message string) T {
+// MustWithMessage returns the value if err is nil, otherwise wraps the error with the provided message.
+// This is a non-panicking version that returns errors gracefully for production safety.
+func MustWithMessage[T any](value T, err error, message string) (T, error) {
 	if err != nil {
-		panic(fmt.Errorf("%s: %w", message, err))
+		var zero T
+		return zero, fmt.Errorf("%s: %w", message, err)
 	}
-	return value
+	return value, nil
 }
