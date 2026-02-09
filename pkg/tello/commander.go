@@ -11,6 +11,7 @@ import (
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/errors"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
+	"golang.org/x/sync/errgroup"
 )
 
 type FlipDirection string
@@ -110,29 +111,40 @@ func (t *telloCommander) processCommandQueue() {
 	defer t.wg.Done()
 
 	for {
+		// Check context first - if cancelled, exit immediately
 		select {
 		case <-t.ctx.Done():
 			utils.Logger.Info("Command queue processor shutting down...")
 			return
 		default:
-			req, ok := t.commandQueue.Dequeue()
-			if !ok {
+			// Continue to try Dequeue
+		}
+
+		// Try to get a command (context-aware)
+		req, ok := t.commandQueue.Dequeue(t.ctx)
+		if !ok {
+			// Queue is closed or context cancelled - exit
+			select {
+			case <-t.ctx.Done():
+				utils.Logger.Info("Command queue processor shutting down...")
+				return
+			default:
 				continue
 			}
+		}
 
-			respStr, err := t.sendCommand(req.Command)
+		respStr, err := t.sendCommand(req.Command)
 
-			// If there's a response channel, send the result back
-			if req.ResponseChan != nil {
-				req.ResponseChan <- CommandResponse{
-					Response: respStr,
-					Error:    err,
-				}
-				close(req.ResponseChan)
-			} else if err != nil {
-				// Only log errors for fire-and-forget commands
-				utils.Logger.Errorf("Failed to process command '%s': %v", req.Command, err)
+		// If there's a response channel, send the result back
+		if req.ResponseChan != nil {
+			req.ResponseChan <- CommandResponse{
+				Response: respStr,
+				Error:    err,
 			}
+			close(req.ResponseChan)
+		} else if err != nil {
+			// Only log errors for fire-and-forget commands
+			utils.Logger.Errorf("Failed to process command '%s': %v", req.Command, err)
 		}
 	}
 }
@@ -589,11 +601,21 @@ func (t *telloCommander) SetVideoFrameCallback(callback VideoFrameCallback) {
 
 	// Start a goroutine to listen for video frames and call the callback
 	if t.videoStreamListener != nil {
+		t.wg.Add(1)
 		go func() {
+			defer t.wg.Done()
 			frameChan := t.videoStreamListener.GetFrameChannel()
-			for frame := range frameChan {
-				if t.videoFrameCallback != nil {
-					t.videoFrameCallback(frame)
+			for {
+				select {
+				case <-t.ctx.Done():
+					return
+				case frame, ok := <-frameChan:
+					if !ok {
+						return
+					}
+					if t.videoFrameCallback != nil {
+						t.videoFrameCallback(frame)
+					}
 				}
 			}
 		}()
@@ -701,6 +723,10 @@ func WithSafetyDisabled() func(*InitializeOptions) {
 
 // InitializeWithOptions creates and configures a new TelloCommander with safety options
 func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, error) {
+	// Create context for listener startup
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Apply default options
 	options := &InitializeOptions{
 		TransportConfig: config.DefaultTransportConfig(),
@@ -747,31 +773,25 @@ func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, er
 		utils.Logger.Infof("Safety config: %s", getSafetyConfigName(options))
 	}
 
-	// Start listeners with error handling
-	stateListenerErr := make(chan error, 1)
-	videoListenerErr := make(chan error, 1)
+	// Start listeners with error handling using errgroup
+	g, ctx := errgroup.WithContext(ctx)
 
-	go func() {
+	g.Go(func() error {
 		if err := stateListener.Start(); err != nil {
-			stateListenerErr <- errors.ConnectionError("TelloCommander", "start state listener", err)
-		} else {
-			close(stateListenerErr)
+			return errors.ConnectionError("TelloCommander", "start state listener", err)
 		}
-	}()
+		return nil
+	})
 
-	go func() {
+	g.Go(func() error {
 		if err := videoStreamListener.Start(); err != nil {
-			videoListenerErr <- errors.ConnectionError("TelloCommander", "start video stream listener", err)
-		} else {
-			close(videoListenerErr)
+			return errors.ConnectionError("TelloCommander", "start video stream listener", err)
 		}
-	}()
+		return nil
+	})
 
-	// Wait for listener startup and check for errors
-	if err := <-stateListenerErr; err != nil {
-		return nil, err
-	}
-	if err := <-videoListenerErr; err != nil {
+	// Wait for listener startup and return first error if any
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
@@ -783,11 +803,12 @@ func InitializeWithOptions(opts ...func(*InitializeOptions)) (TelloCommander, er
 func (t *telloCommander) Shutdown() error {
 	utils.Logger.Info("Shutting down Tello commander...")
 
-	// Signal shutdown
-	t.cancel()
-
-	// Stop accepting new commands and wake up queue processor
+	// Close command queue first to wake up any blocking Dequeue() calls
+	// This must happen BEFORE context cancellation so goroutines can exit cleanly
 	t.commandQueue.Close()
+
+	// Signal shutdown via context (cancels any ongoing operations)
+	t.cancel()
 
 	// Wait for command processor to finish
 	t.wg.Wait()
