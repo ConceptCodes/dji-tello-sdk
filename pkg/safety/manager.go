@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
@@ -74,6 +75,14 @@ type SafetyManager struct {
 	telemetryCtx    context.Context
 	telemetryCancel context.CancelFunc
 
+	// Event callback processing (bounded worker pool)
+	callbackChan      chan *SafetyEvent
+	callbackWg        sync.WaitGroup
+	callbackCtx       context.Context
+	callbackCancel    context.CancelFunc
+	callbackSemaphore chan struct{} // Limits concurrent callbacks
+	callbackStarted   int32         // Atomic flag: 1 if callback worker is started
+
 	// Emergency state
 	emergencyMode bool
 	safetyEnabled bool
@@ -107,11 +116,51 @@ func (sm *SafetyManager) StartTelemetryProcessing(stateChan <-chan *types.State)
 	sm.stateChan = stateChan
 	sm.telemetryCtx, sm.telemetryCancel = context.WithCancel(context.Background())
 
+	// Initialize callback worker pool (bounded concurrency with max 10 concurrent callbacks)
+	sm.callbackChan = make(chan *SafetyEvent, 100) // Buffer for pending events
+	sm.callbackSemaphore = make(chan struct{}, 10) // Max 10 concurrent callbacks
+	sm.callbackCtx, sm.callbackCancel = context.WithCancel(context.Background())
+	atomic.StoreInt32(&sm.callbackStarted, 1)
+
+	// Start callback worker goroutine
+	sm.callbackWg.Add(1)
+	go sm.processCallbacks()
+
 	sm.telemetryWg.Add(1)
 	go func() {
 		defer sm.telemetryWg.Done()
 		sm.processTelemetry()
 	}()
+}
+
+// processCallbacks handles event callbacks with bounded concurrency
+func (sm *SafetyManager) processCallbacks() {
+	defer sm.callbackWg.Done()
+
+	for {
+		select {
+		case <-sm.callbackCtx.Done():
+			// Exit immediately on cancellation - pending events in channel are dropped
+			return
+		case event, ok := <-sm.callbackChan:
+			if !ok {
+				// Channel closed, exit
+				return
+			}
+			sm.executeCallbackWithSemaphore(event)
+		}
+	}
+}
+
+// executeCallbackWithSemaphore acquires semaphore and executes callback
+func (sm *SafetyManager) executeCallbackWithSemaphore(event *SafetyEvent) {
+	select {
+	case <-sm.callbackCtx.Done():
+		return
+	case sm.callbackSemaphore <- struct{}{}:
+		defer func() { <-sm.callbackSemaphore }()
+		sm.eventCallback(event)
+	}
 }
 
 // processTelemetry continuously processes telemetry data from the state channel
@@ -150,6 +199,13 @@ func (sm *SafetyManager) UpdateState(state *types.State) {
 
 // StopTelemetryProcessing stops the telemetry processing goroutine
 func (sm *SafetyManager) StopTelemetryProcessing() {
+	// Stop callback workers first - signal cancellation and wait for exit
+	if sm.callbackCancel != nil {
+		sm.callbackCancel()
+	}
+	sm.callbackWg.Wait()
+
+	// Then stop telemetry processing
 	if sm.telemetryCancel != nil {
 		sm.telemetryCancel()
 	}
@@ -161,6 +217,20 @@ func (sm *SafetyManager) SetEventCallback(callback func(*SafetyEvent)) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
 	sm.eventCallback = callback
+
+	if atomic.LoadInt32(&sm.callbackStarted) == 0 && callback != nil {
+		sm.startCallbackWorker()
+	}
+}
+
+func (sm *SafetyManager) startCallbackWorker() {
+	sm.callbackChan = make(chan *SafetyEvent, 100)
+	sm.callbackSemaphore = make(chan struct{}, 10)
+	sm.callbackCtx, sm.callbackCancel = context.WithCancel(context.Background())
+	atomic.StoreInt32(&sm.callbackStarted, 1)
+
+	sm.callbackWg.Add(1)
+	go sm.processCallbacks()
 }
 
 // GetSafetyStatus returns current safety status
@@ -890,9 +960,21 @@ func (sm *SafetyManager) addEvent(event *SafetyEvent) {
 		utils.Logger.Infof("Safety Info: %s", event.Message)
 	}
 
-	// Call event callback if set
+	// Call event callback if set (bounded, non-blocking)
 	if sm.eventCallback != nil {
-		go sm.eventCallback(event)
+		workerRunning := atomic.LoadInt32(&sm.callbackStarted) == 1
+
+		if workerRunning {
+			// Use bounded worker pool
+			select {
+			case sm.callbackChan <- event:
+				// Event queued for callback processing
+			default:
+				// Channel full - callback buffer exhausted, log and skip
+				utils.Logger.Warnf("Safety event callback buffer full, dropping event: %s", event.Message)
+			}
+		}
+
 	}
 }
 
