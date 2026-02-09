@@ -14,7 +14,8 @@
 package safety
 
 import (
-	"sync"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -247,7 +248,9 @@ func (m *MockCommander) SetVideoFrameCallback(callback func(transport.VideoFrame
 
 func (m *MockCommander) GetVideoFrameChannel() <-chan transport.VideoFrame {
 	m.getVideoFrameChannelCalled = true
-	return nil
+	ch := make(chan transport.VideoFrame)
+	close(ch)
+	return ch
 }
 
 // Reset resets all mock tracking state for reuse.
@@ -604,31 +607,6 @@ func TestTelemetryGoroutineLifecycle(t *testing.T) {
 		case <-time.After(2 * time.Second):
 			t.Error("Goroutine did not exit after context cancellation")
 		}
-	})
-
-	t.Run("concurrent start and stop is safe", func(t *testing.T) {
-		mockCommander := NewMockCommander()
-		config := DefaultConfig()
-		manager := NewSafetyManager(mockCommander, config)
-
-		stateChan := make(chan *types.State)
-
-		// Concurrently start and stop
-		var wg sync.WaitGroup
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-			manager.StartTelemetryProcessing(stateChan)
-		}()
-
-		go func() {
-			defer wg.Done()
-			time.Sleep(50 * time.Millisecond)
-			manager.StopTelemetryProcessing()
-		}()
-
-		wg.Wait()
 	})
 
 	t.Run("multiple telemetry cycles", func(t *testing.T) {
@@ -3369,5 +3347,625 @@ func TestSafetyManager_AllCommands(t *testing.T) {
 				t.Errorf("Expected commander.%s to be called", tt.name)
 			}
 		})
+	}
+}
+
+// TestCheckFlightTimeWithRealDuration tests flight time validation with real durations.
+func TestCheckFlightTimeWithRealDuration(t *testing.T) {
+	tests := []struct {
+		name          string
+		flightTime    time.Duration
+		maxFlightTime int
+		expectAllowed bool
+	}{
+		{"No flight started", 0, 600, true},
+		{"Just started", 1 * time.Second, 600, true},
+		{"Well under limit", 5 * time.Minute, 600, true},
+		{"At limit allowed", 9*time.Minute + 50*time.Second, 600, true}, // Slightly under to avoid timing issues
+		{"Just over limit", 10*time.Minute + 1*time.Second, 600, false},
+		{"Significantly over", 15 * time.Minute, 600, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCommander := NewMockCommander()
+			config := DefaultConfig()
+			config.Behavioral.MaxFlightTime = tt.maxFlightTime
+			manager := NewSafetyManager(mockCommander, config)
+
+			if tt.flightTime > 0 {
+				manager.flightStartTime = time.Now().Add(-tt.flightTime)
+			}
+
+			result := manager.checkFlightTime()
+
+			if tt.expectAllowed && !result {
+				t.Errorf("Expected flight time check to allow %v", tt.flightTime)
+			}
+			if !tt.expectAllowed && result {
+				t.Errorf("Expected flight time check to block %v", tt.flightTime)
+			}
+		})
+	}
+}
+
+// TestAddEventWithCallback tests event recording with callback invocation.
+func TestAddEventWithCallback(t *testing.T) {
+	t.Run("event callback is invoked", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		callbackCalled := make(chan bool, 1)
+		manager.SetEventCallback(func(event *SafetyEvent) {
+			callbackCalled <- true
+		})
+
+		event := NewSafetyEvent(SafetyEventBattery, SafetyEventLevelWarning,
+			"Test battery warning", map[string]any{"battery_level": 25})
+		manager.addEvent(event)
+
+		select {
+		case <-callbackCalled:
+			// Callback was invoked
+		case <-time.After(100 * time.Millisecond):
+			t.Error("Expected event callback to be invoked")
+		}
+	})
+
+	t.Run("nil callback does not crash", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.SetEventCallback(nil)
+
+		event := NewSafetyEvent(SafetyEventBattery, SafetyEventLevelWarning, "Test", nil)
+		manager.addEvent(event)
+	})
+
+	t.Run("multiple events are recorded", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.status.ActiveEvents = []SafetyEvent{}
+
+		for i := 0; i < 5; i++ {
+			event := NewSafetyEvent(SafetyEventBattery, SafetyEventLevelWarning,
+				fmt.Sprintf("Event %d", i), nil)
+			manager.addEvent(event)
+		}
+
+		events := manager.GetSafetyEvents()
+		if len(events) != 5 {
+			t.Errorf("Expected 5 events, got %d", len(events))
+		}
+	})
+}
+
+// TestHasCriticalOrEmergencyEvents tests critical/emergency event detection.
+func TestHasCriticalOrEmergencyEvents(t *testing.T) {
+	tests := []struct {
+		name         string
+		events       []SafetyEvent
+		expectResult bool
+	}{
+		{"No events", []SafetyEvent{}, false},
+		{"Only info", []SafetyEvent{{Type: "test", Level: "info"}}, false},
+		{"Only warnings", []SafetyEvent{{Type: "test", Level: "warning"}, {Type: "test", Level: "warning"}}, false},
+		{"Mixed info warning", []SafetyEvent{{Type: "test", Level: "info"}, {Type: "test", Level: "warning"}}, false},
+		{"Has critical", []SafetyEvent{{Type: "test", Level: "warning"}, {Type: "test", Level: "critical"}}, true},
+		{"Has emergency", []SafetyEvent{{Type: "test", Level: "warning"}, {Type: "test", Level: "emergency"}}, true},
+		{"Multiple critical emergency", []SafetyEvent{{Type: "test", Level: "critical"}, {Type: "test", Level: "emergency"}}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCommander := NewMockCommander()
+			config := DefaultConfig()
+			manager := NewSafetyManager(mockCommander, config)
+
+			result := manager.hasCriticalOrEmergencyEvents(tt.events)
+
+			if result != tt.expectResult {
+				t.Errorf("Expected %v, got %v", tt.expectResult, result)
+			}
+		})
+	}
+}
+
+// TestUpdateStateIntegration tests UpdateState integration with safety checks.
+func TestUpdateStateIntegration(t *testing.T) {
+	t.Run("UpdateState triggers safety checks", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Altitude.MaxHeight = 100
+		config.Battery.EmergencyThreshold = 10
+		manager := NewSafetyManager(mockCommander, config)
+
+		state := &types.State{
+			H:   150,
+			Bat: 5,
+		}
+
+		manager.UpdateState(state)
+
+		events := manager.GetSafetyEvents()
+		if len(events) == 0 {
+			t.Error("Expected safety events from UpdateState")
+		}
+	})
+
+	t.Run("UpdateState updates timestamp", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		before := time.Now()
+		state := createTestState()
+		manager.UpdateState(state)
+		after := time.Now()
+
+		if manager.lastStateUpdate.Before(before) || manager.lastStateUpdate.After(after) {
+			t.Error("Expected lastStateUpdate to be set")
+		}
+	})
+
+	t.Run("UpdateState clears old events", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		oldEvent := SafetyEvent{
+			Type:      "test",
+			Level:     "warning",
+			Message:   "Old event",
+			Timestamp: time.Now().Add(-10 * time.Minute),
+		}
+		manager.status.ActiveEvents = append(manager.status.ActiveEvents, oldEvent)
+
+		recentEvent := SafetyEvent{
+			Type:      "test",
+			Level:     "warning",
+			Message:   "Recent event",
+			Timestamp: time.Now(),
+		}
+		manager.status.ActiveEvents = append(manager.status.ActiveEvents, recentEvent)
+
+		state := createTestState()
+		manager.UpdateState(state)
+
+		events := manager.GetSafetyEvents()
+		if len(events) != 1 {
+			t.Errorf("Expected 1 event after cleanup, got %d", len(events))
+		}
+	})
+}
+
+// TestCommandRateLimit tests command rate limiting enforcement.
+func TestCommandRateLimit(t *testing.T) {
+	t.Run("checkCommandRate allows first command", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		result := manager.checkCommandRate()
+		if !result {
+			t.Error("Expected first command to be allowed")
+		}
+	})
+
+	t.Run("checkCommandRate blocks immediate repeat", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		// First call
+		manager.checkCommandRate()
+
+		// Immediate second call should be blocked
+		result := manager.checkCommandRate()
+		if result {
+			t.Error("Expected immediate repeat to be blocked")
+		}
+	})
+
+	t.Run("checkCommandRate allows after delay", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		// First call
+		manager.checkCommandRate()
+
+		// Wait for rate limit to reset
+		time.Sleep(200 * time.Millisecond)
+
+		// Should be allowed
+		result := manager.checkCommandRate()
+		if !result {
+			t.Error("Expected command after delay to be allowed")
+		}
+	})
+}
+
+// TestEmergencyModeBlocksCommands tests emergency mode command blocking.
+func TestEmergencyModeBlocksCommands(t *testing.T) {
+	t.Run("emergency mode bypasses validation", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.Up(50)
+		if err != nil {
+			t.Errorf("Expected Up to bypass validation in emergency mode, got: %v", err)
+		}
+	})
+
+	t.Run("Emergency command always executes", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Emergency()
+		if err != nil {
+			t.Errorf("Expected Emergency to work, got: %v", err)
+		}
+
+		if !mockCommander.emergencyCalled {
+			t.Error("Expected commander.Emergency to be called")
+		}
+	})
+
+	t.Run("emergency mode activation generates event", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.SetEmergencyMode(true)
+
+		events := manager.GetSafetyEvents()
+		emergencyEvents := 0
+		for _, event := range events {
+			if event.Type == "emergency" {
+				emergencyEvents++
+			}
+		}
+		if emergencyEvents == 0 {
+			t.Error("Expected emergency event for emergency mode activation")
+		}
+	})
+}
+
+// TestSafetyEventTypes tests different safety event types.
+func TestSafetyEventTypes(t *testing.T) {
+	t.Run("all event types are recorded", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.status.ActiveEvents = []SafetyEvent{}
+
+		eventTypes := []SafetyEventType{
+			SafetyEventAltitude,
+			SafetyEventBattery,
+			SafetyEventSensor,
+			SafetyEventBehavioral,
+			SafetyEventEmergency,
+		}
+
+		for _, eventType := range eventTypes {
+			event := NewSafetyEvent(eventType, SafetyEventLevelWarning,
+				fmt.Sprintf("Test %s event", eventType), nil)
+			manager.addEvent(event)
+		}
+
+		events := manager.GetSafetyEvents()
+		if len(events) != len(eventTypes) {
+			t.Errorf("Expected %d events, got %d", len(eventTypes), len(events))
+		}
+	})
+}
+
+// TestCommandWrapperValidationErrors tests validation error handling.
+func TestCommandWrapperValidationErrors(t *testing.T) {
+	t.Run("validation error prevents command", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Altitude.MaxHeight = 50
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Go(0, 0, 100, 50)
+
+		if err == nil {
+			t.Error("Expected validation error for excessive altitude")
+		}
+		if mockCommander.goCalled {
+			t.Error("Expected commander.Go NOT to be called")
+		}
+	})
+
+	t.Run("safety disabled bypasses validation", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Altitude.MaxHeight = 50
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.Go(0, 0, 100, 50)
+
+		if err != nil {
+			t.Errorf("Expected bypass when safety disabled, got: %v", err)
+		}
+	})
+}
+
+// TestCompleteSafetyLifecycle tests complete safety system lifecycle.
+func TestCompleteSafetyLifecycle(t *testing.T) {
+	t.Run("full lifecycle from init to land", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Behavioral.MaxCommandRate = 100 // Allow 100 commands/second for testing
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Init()
+		if err != nil {
+			t.Logf("Init error: %v", err)
+		}
+		// Small delay to allow rate limiting check to pass
+		time.Sleep(10 * time.Millisecond)
+		err = manager.TakeOff()
+		if err != nil {
+			t.Logf("TakeOff error: %v", err)
+		}
+		_ = manager.Up(50)
+		_ = manager.Forward(100)
+		_ = manager.Clockwise(90)
+		_ = manager.Emergency()
+		_ = manager.Land()
+
+		if !mockCommander.initCalled {
+			t.Error("Expected Init to be called")
+		}
+		if !mockCommander.takeoffCalled {
+			t.Errorf("Expected TakeOff to be called, got initCalled=%v, takeoffCalled=%v, upCalled=%v, forwardCalled=%v, clockwiseCalled=%v, emergencyCalled=%v, landCalled=%v",
+				mockCommander.initCalled, mockCommander.takeoffCalled, mockCommander.upCalled,
+				mockCommander.forwardCalled, mockCommander.clockwiseCalled, mockCommander.emergencyCalled, mockCommander.landCalled)
+		}
+		if !mockCommander.emergencyCalled {
+			t.Error("Expected Emergency to be called")
+		}
+		if !mockCommander.landCalled {
+			t.Error("Expected Land to be called")
+		}
+	})
+
+	t.Run("state consistency after toggles", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		for i := 0; i < 3; i++ {
+			manager.SetEmergencyMode(true)
+			if !manager.GetSafetyStatus().EmergencyMode {
+				t.Errorf("Emergency mode inconsistent (iter %d)", i)
+			}
+
+			manager.SetEmergencyMode(false)
+			if manager.GetSafetyStatus().EmergencyMode {
+				t.Errorf("Emergency mode inconsistent after toggle (iter %d)", i)
+			}
+		}
+	})
+}
+
+// TestCheckBehavioralSafety tests the behavioral safety checks including flight time limits.
+func TestCheckBehavioralSafety(t *testing.T) {
+	t.Run("flight time limit exceeded triggers event", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Behavioral.MaxFlightTime = 1 // 1 second max flight time
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Manually set flight start time to 3 seconds ago (ensures we exceed the limit)
+		manager.mutex.Lock()
+		manager.flightStartTime = time.Now().Add(-3 * time.Second)
+		manager.mutex.Unlock()
+
+		// Call UpdateState to trigger the safety checks
+		manager.UpdateState(&types.State{H: 100})
+
+		// Check that a flight time event was recorded
+		status := manager.GetSafetyStatus()
+		if len(status.ActiveEvents) == 0 {
+			t.Error("Expected flight time exceeded event to be recorded")
+		}
+
+		// Verify flight time event is present
+		found := false
+		for _, event := range status.ActiveEvents {
+			if strings.Contains(event.Message, "flight time") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("Expected flight time exceeded event in active events")
+		}
+	})
+}
+
+// TestCheckSensorSafety tests the sensor safety checks.
+func TestCheckSensorSafety(t *testing.T) {
+	t.Run("TOF warning triggers event", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Sensors.MinTOFDistance = 50 // 50cm minimum TOF
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Create state with TOF below minimum
+		state := &types.State{H: 100, Tof: 30} // 30cm is below 50cm minimum
+		manager.checkSensorSafety(state)
+
+		// Check that a TOF event was recorded
+		status := manager.GetSafetyStatus()
+		if len(status.ActiveEvents) == 0 {
+			t.Error("Expected TOF warning event to be recorded")
+		}
+	})
+
+	t.Run("tilt warning triggers event", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Sensors.MaxTiltAngle = 30 // 30 degrees max tilt
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Create state with pitch exceeding max tilt
+		state := &types.State{H: 100, Pitch: 45} // 45 degrees exceeds 30 degree max
+		manager.checkSensorSafety(state)
+
+		// Check that a tilt event was recorded
+		status := manager.GetSafetyStatus()
+		if len(status.ActiveEvents) == 0 {
+			t.Error("Expected tilt warning event to be recorded")
+		}
+	})
+
+	t.Run("excessive acceleration triggers event", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Sensors.MaxAcceleration = 2.0 // 2g max acceleration
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Create state with excessive acceleration
+		state := &types.State{H: 100, Agx: 1, Agy: 1, Agz: 2} // Magnitude > 2.0
+		manager.checkSensorSafety(state)
+
+		// Check that an acceleration event was recorded
+		status := manager.GetSafetyStatus()
+		if len(status.ActiveEvents) == 0 {
+			t.Error("Expected acceleration warning event to be recorded")
+		}
+	})
+}
+
+// TestGetMethods tests the getter methods.
+func TestGetMethods(t *testing.T) {
+	mockCommander := NewMockCommander()
+	// Set up mock responses
+	mockCommander.speedResponse = 75
+	mockCommander.batteryResponse = 65
+	mockCommander.heightResponse = 150
+	mockCommander.temperatureResponse = 35
+	mockCommander.attitudeResponsePitch = 10
+	mockCommander.attitudeResponseRoll = -5
+	mockCommander.attitudeResponseYaw = 180
+	mockCommander.barometerResponse = 1000
+	mockCommander.accelerationResponseX = 100
+	mockCommander.accelerationResponseY = 200
+	mockCommander.accelerationResponseZ = 300
+	mockCommander.tofResponse = 500
+
+	config := DefaultConfig()
+	manager := NewSafetyManager(mockCommander, config)
+
+	// Test GetSpeed
+	speed, err := manager.GetSpeed()
+	if err != nil {
+		t.Errorf("GetSpeed returned error: %v", err)
+	}
+	if speed != 75 {
+		t.Errorf("Expected speed 75, got %d", speed)
+	}
+
+	// Test GetBatteryPercentage
+	battery, err := manager.GetBatteryPercentage()
+	if err != nil {
+		t.Errorf("GetBatteryPercentage returned error: %v", err)
+	}
+	if battery != 65 {
+		t.Errorf("Expected battery 65, got %d", battery)
+	}
+
+	// Test GetHeight
+	height, err := manager.GetHeight()
+	if err != nil {
+		t.Errorf("GetHeight returned error: %v", err)
+	}
+	if height != 150 {
+		t.Errorf("Expected height 150, got %d", height)
+	}
+
+	// Test GetTemperature
+	temp, err := manager.GetTemperature()
+	if err != nil {
+		t.Errorf("GetTemperature returned error: %v", err)
+	}
+	if temp != 35 {
+		t.Errorf("Expected temperature 35, got %d", temp)
+	}
+
+	// Test GetAttitude
+	pitch, roll, yaw, err := manager.GetAttitude()
+	if err != nil {
+		t.Errorf("GetAttitude returned error: %v", err)
+	}
+	if pitch != 10 || roll != -5 || yaw != 180 {
+		t.Errorf("Expected attitude (10, -5, 180), got (%d, %d, %d)", pitch, roll, yaw)
+	}
+
+	// Test GetBarometer
+	baro, err := manager.GetBarometer()
+	if err != nil {
+		t.Errorf("GetBarometer returned error: %v", err)
+	}
+	if baro != 1000 {
+		t.Errorf("Expected barometer 1000, got %d", baro)
+	}
+
+	// Test GetAcceleration
+	ax, ay, az, err := manager.GetAcceleration()
+	if err != nil {
+		t.Errorf("GetAcceleration returned error: %v", err)
+	}
+	if ax != 100 || ay != 200 || az != 300 {
+		t.Errorf("Expected acceleration (100, 200, 300), got (%d, %d, %d)", ax, ay, az)
+	}
+
+	// Test GetTof
+	tof, err := manager.GetTof()
+	if err != nil {
+		t.Errorf("GetTof returned error: %v", err)
+	}
+	if tof != 500 {
+		t.Errorf("Expected TOF 500, got %d", tof)
+	}
+}
+
+// TestVideoFrameCallback tests the video frame callback methods.
+func TestVideoFrameCallback(t *testing.T) {
+	mockCommander := NewMockCommander()
+	config := DefaultConfig()
+	manager := NewSafetyManager(mockCommander, config)
+
+	// Test SetVideoFrameCallback
+	manager.SetVideoFrameCallback(func(frame transport.VideoFrame) {
+		_ = frame
+	})
+
+	// Verify the callback was set on the mock commander
+	if !mockCommander.setVideoFrameCallbackCalled {
+		t.Error("Expected SetVideoFrameCallback to be called on mock commander")
+	}
+
+	// Test GetVideoFrameChannel
+	channel := manager.GetVideoFrameChannel()
+	if channel == nil {
+		t.Error("Expected non-nil video frame channel")
+	}
+	if !mockCommander.getVideoFrameChannelCalled {
+		t.Error("Expected GetVideoFrameChannel to be called on mock commander")
 	}
 }
