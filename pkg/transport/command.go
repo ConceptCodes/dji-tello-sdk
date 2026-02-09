@@ -70,7 +70,9 @@ func (c *CommandConnection) reconnect() error {
 
 func (c *CommandConnection) reconnectWithLocal(bindToCommandPort bool) error {
 	if c.client != nil {
-		_ = c.client.Close()
+		if err := c.client.Close(); err != nil {
+			utils.Logger.Warnf("Failed to close existing UDP client during reconnect: %v", err)
+		}
 		c.client = nil
 	}
 

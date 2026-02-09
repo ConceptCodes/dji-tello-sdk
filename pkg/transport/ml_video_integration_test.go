@@ -78,7 +78,6 @@ func TestNewMLVideoIntegration(t *testing.T) {
 
 	// Create ML video integration
 	integration, err := NewMLVideoIntegration("0.0.0.0:6060", mlConfig)
-
 	// Note: This might fail if UDP server can't bind to the port
 	if err != nil {
 		assert.Contains(t, err.Error(), "failed to create video listener")

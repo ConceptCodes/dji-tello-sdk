@@ -164,7 +164,6 @@ func (vf *VideoFrame) ToEnhancedFrame() *ml.EnhancedVideoFrame {
 
 func onVideoStreamError(err error) {
 	utils.Logger.Errorf("Video stream listener UDP server error: %v", err)
-	// TODO: Consider if any specific errors need more handling (e.g., re-establishing connection if possible).
 }
 
 // toRGBImage converts the raw frame bytes into an RGB image so downstream

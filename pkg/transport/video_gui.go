@@ -10,12 +10,12 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml/overlay"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/utils"
 	"github.com/veandco/go-sdl2/sdl"
-	"unsafe"
 )
 
 // VideoDisplayType represents the type of video display
