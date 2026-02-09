@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/config"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/errors"
@@ -165,6 +166,10 @@ func (t *telloCommander) sendReadCommand(cmd string) (string, error) {
 	// Enqueue with high priority and get response channel
 	respChan := t.commandQueue.EnqueueRead(cmd)
 
+	// Create a timeout context to prevent indefinite blocking
+	ctx, cancel := context.WithTimeout(t.ctx, 10*time.Second)
+	defer cancel()
+
 	// Wait for response
 	select {
 	case resp := <-respChan:
@@ -172,7 +177,11 @@ func (t *telloCommander) sendReadCommand(cmd string) (string, error) {
 			return "", resp.Error
 		}
 		return resp.Response, nil
-	case <-t.ctx.Done():
+	case <-ctx.Done():
+		if ctx.Err() == context.DeadlineExceeded {
+			return "", errors.NewSDKError(errors.ErrTimeout, "TelloCommander",
+				fmt.Sprintf("timeout waiting for response to command '%s' (10s exceeded)", cmd))
+		}
 		return "", errors.NewSDKError(errors.ErrTimeout, "TelloCommander",
 			fmt.Sprintf("context cancelled while waiting for command '%s'", cmd))
 	}
