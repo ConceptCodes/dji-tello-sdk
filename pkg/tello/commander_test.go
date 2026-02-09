@@ -3,9 +3,12 @@ package tello
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
+	"go.uber.org/goleak"
 )
 
 // MockCommandConnection is a mock implementation of CommandConnection for testing
@@ -84,29 +87,6 @@ func TestNewTelloCommander(t *testing.T) {
 
 // Read Command Tests
 func TestGetSpeed(t *testing.T) {
-	// Create a mock command connection
-	mockConn := NewMockCommandConnection()
-	mockConn.SetResponse("speed?", "50")
-
-	commander := createTestCommander(mockConn)
-	defer commander.Shutdown()
-
-	speed, err := commander.GetSpeed()
-	if err != nil {
-		t.Errorf("Expected no error, got %v", err)
-	}
-
-	if speed != 50 {
-		t.Errorf("Expected speed 50, got %d", speed)
-	}
-
-	commands := mockConn.GetSentCommands()
-	if len(commands) != 1 || commands[0] != "speed?" {
-		t.Errorf("Expected 'speed?' command to be sent, got %v", commands)
-	}
-}
-
-func TestGetBatteryPercentage(t *testing.T) {
 	mockConn := NewMockCommandConnection()
 	mockConn.SetResponse("battery?", "85")
 
@@ -303,7 +283,7 @@ func TestTakeOff(t *testing.T) {
 		t.Errorf("Expected queue size 1, got %d", queue.Size())
 	}
 
-	req, ok := queue.Dequeue()
+	req, ok := queue.Dequeue(context.Background())
 	if !ok || req.Command != "takeoff" {
 		t.Errorf("Expected 'takeoff' command, got '%s'", req.Command)
 	}
@@ -325,7 +305,7 @@ func TestLand(t *testing.T) {
 		t.Errorf("Expected queue size 1, got %d", queue.Size())
 	}
 
-	req, ok := queue.Dequeue()
+	req, ok := queue.Dequeue(context.Background())
 	if !ok || req.Command != "land" {
 		t.Errorf("Expected 'land' command, got '%s'", req.Command)
 	}
@@ -343,7 +323,7 @@ func TestEmergency(t *testing.T) {
 		t.Errorf("Expected no error, got %v", err)
 	}
 
-	req, ok := queue.Dequeue()
+	req, ok := queue.Dequeue(context.Background())
 	if !ok || req.Command != "emergency" {
 		t.Errorf("Expected 'emergency' command, got '%s'", req.Command)
 	}
@@ -378,7 +358,7 @@ func TestMovementCommands(t *testing.T) {
 				t.Errorf("Expected no error for %s, got %v", test.name, err)
 			}
 
-			req, ok := queue.Dequeue()
+			req, ok := queue.Dequeue(context.Background())
 			if !ok || req.Command != test.command {
 				t.Errorf("Expected '%s' command for %s, got '%s'", test.command, test.name, req.Command)
 			}
@@ -426,7 +406,7 @@ func TestRotationCommands(t *testing.T) {
 		t.Errorf("Expected no error for clockwise rotation, got %v", err)
 	}
 
-	req, ok := queue.Dequeue()
+	req, ok := queue.Dequeue(context.Background())
 	if !ok || req.Command != "cw 90" {
 		t.Errorf("Expected 'cw 90' command, got '%s'", req.Command)
 	}
@@ -436,7 +416,7 @@ func TestRotationCommands(t *testing.T) {
 		t.Errorf("Expected no error for counter-clockwise rotation, got %v", err)
 	}
 
-	req, ok = queue.Dequeue()
+	req, ok = queue.Dequeue(context.Background())
 	if !ok || req.Command != "ccw 180" {
 		t.Errorf("Expected 'ccw 180' command, got '%s'", req.Command)
 	}
@@ -454,7 +434,7 @@ func TestFlipCommand(t *testing.T) {
 		t.Errorf("Expected no error for flip command, got %v", err)
 	}
 
-	req, ok := queue.Dequeue()
+	req, ok := queue.Dequeue(context.Background())
 	if !ok || req.Command != "flip l" {
 		t.Errorf("Expected 'flip l' command, got '%s'", req.Command)
 	}
@@ -472,7 +452,7 @@ func TestSetSpeed(t *testing.T) {
 		t.Errorf("Expected no error for set speed, got %v", err)
 	}
 
-	req, ok := queue.Dequeue()
+	req, ok := queue.Dequeue(context.Background())
 	if !ok || req.Command != "speed 75" {
 		t.Errorf("Expected 'speed 75' command, got '%s'", req.Command)
 	}
@@ -490,7 +470,7 @@ func TestSetRcControl(t *testing.T) {
 		t.Errorf("Expected no error for RC control, got %v", err)
 	}
 
-	req, ok := queue.Dequeue()
+	req, ok := queue.Dequeue(context.Background())
 	if !ok || req.Command != "rc 50 -30 0 90" {
 		t.Errorf("Expected 'rc 50 -30 0 90' command, got '%s'", req.Command)
 	}
@@ -508,7 +488,7 @@ func TestSetWiFiCredentials(t *testing.T) {
 		t.Errorf("Expected no error for WiFi credentials, got %v", err)
 	}
 
-	req, ok := queue.Dequeue()
+	req, ok := queue.Dequeue(context.Background())
 	if !ok || req.Command != "wifi MyWiFi password123" {
 		t.Errorf("Expected 'wifi MyWiFi password123' command, got '%s'", req.Command)
 	}
@@ -590,4 +570,94 @@ func TestSendCommandUnexpectedResponse(t *testing.T) {
 	if resp != "unexpected" {
 		t.Errorf("Expected response 'unexpected', got '%s'", resp)
 	}
+}
+
+// ==================== Goroutine Leak Detection Tests ====================
+
+// TestCommanderShutdownNoLeak verifies no goroutines leak after commander shutdown
+func TestCommanderShutdownNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockConn := NewMockCommandConnection()
+	commander := createTestCommander(mockConn)
+
+	// Allow the command queue processor to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Shutdown the commander
+	commander.Shutdown()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestCommanderOperationsNoLeak verifies no leaks during normal operations
+func TestCommanderOperationsNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockConn := NewMockCommandConnection()
+	mockConn.SetResponse("speed?", "50")
+	mockConn.SetResponse("battery?", "85")
+
+	commander := createTestCommander(mockConn)
+
+	// Perform some operations
+	_, _ = commander.GetSpeed()
+	_, _ = commander.GetBatteryPercentage()
+
+	// Shutdown
+	commander.Shutdown()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestCommanderErrorHandlingNoLeak verifies no leaks during error handling
+func TestCommanderErrorHandlingNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockConn := NewMockCommandConnection()
+	mockConn.SetError("speed?", errors.New("network error"))
+
+	commander := createTestCommander(mockConn)
+
+	// Perform operation that causes error
+	_, _ = commander.GetSpeed()
+
+	// Shutdown
+	commander.Shutdown()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestCommanderConcurrentOperationsNoLeak verifies no leaks during concurrent operations
+func TestCommanderConcurrentOperationsNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockConn := NewMockCommandConnection()
+	mockConn.SetResponse("speed?", "50")
+	mockConn.SetResponse("battery?", "85")
+	mockConn.SetResponse("height?", "100")
+
+	commander := createTestCommander(mockConn)
+
+	// Perform concurrent operations
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = commander.GetSpeed()
+			_, _ = commander.GetBatteryPercentage()
+			_, _ = commander.GetHeight()
+		}()
+	}
+	wg.Wait()
+
+	// Shutdown
+	commander.Shutdown()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
 }

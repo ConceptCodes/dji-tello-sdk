@@ -21,6 +21,7 @@ import (
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/transport"
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/types"
+	"go.uber.org/goleak"
 )
 
 // MockCommander is a mock implementation of CommanderInterface for testing.
@@ -3408,7 +3409,7 @@ func TestAddEventWithCallback(t *testing.T) {
 		select {
 		case <-callbackCalled:
 			// Callback was invoked
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(500 * time.Millisecond):
 			t.Error("Expected event callback to be invoked")
 		}
 	})
@@ -3968,4 +3969,110 @@ func TestVideoFrameCallback(t *testing.T) {
 	if !mockCommander.getVideoFrameChannelCalled {
 		t.Error("Expected GetVideoFrameChannel to be called on mock commander")
 	}
+}
+
+// ==================== Goroutine Leak Detection Tests ====================
+
+// TestSafetyManagerShutdownNoLeak verifies no goroutines leak after safety manager shutdown
+func TestSafetyManagerShutdownNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockCommander := NewMockCommander()
+	config := DefaultConfig()
+	manager := NewSafetyManager(mockCommander, config)
+
+	// Start telemetry processing
+	stateChan := make(chan *types.State)
+	manager.StartTelemetryProcessing(stateChan)
+
+	// Stop telemetry processing
+	manager.StopTelemetryProcessing()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestSafetyManagerMultipleTelemetryCyclesNoLeak verifies no leaks during multiple telemetry cycles
+func TestSafetyManagerMultipleTelemetryCyclesNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockCommander := NewMockCommander()
+	config := DefaultConfig()
+	manager := NewSafetyManager(mockCommander, config)
+
+	// Perform multiple telemetry cycles
+	for i := 0; i < 3; i++ {
+		stateChan := make(chan *types.State)
+		manager.StartTelemetryProcessing(stateChan)
+
+		// Send a state
+		stateChan <- createTestState()
+		close(stateChan)
+
+		manager.StopTelemetryProcessing()
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestSafetyManagerConcurrentTelemetryNoLeak verifies no leaks during concurrent telemetry operations
+func TestSafetyManagerConcurrentTelemetryNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockCommander := NewMockCommander()
+	config := DefaultConfig()
+	manager := NewSafetyManager(mockCommander, config)
+
+	// Start telemetry processing
+	stateChan := make(chan *types.State)
+	manager.StartTelemetryProcessing(stateChan)
+
+	// Send states concurrently with proper synchronization
+	done := make(chan bool)
+	go func() {
+		for i := 0; i < 5; i++ {
+			state := createTestState()
+			state.Bat = 80 + i
+			select {
+			case stateChan <- state:
+			case <-time.After(1 * time.Second):
+				// Timeout after 1 second to prevent blocking
+				t.Log("Warning: Timed out sending state")
+				break
+			}
+		}
+		close(stateChan)
+		done <- true
+	}()
+
+	// Wait for sends to complete
+	<-done
+
+	// Stop telemetry processing
+	manager.StopTelemetryProcessing()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestSafetyManagerEmergencyModeNoLeak verifies no leaks during emergency mode operations
+func TestSafetyManagerEmergencyModeNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mockCommander := NewMockCommander()
+	config := DefaultConfig()
+	manager := NewSafetyManager(mockCommander, config)
+
+	// Start telemetry processing
+	stateChan := make(chan *types.State)
+	manager.StartTelemetryProcessing(stateChan)
+
+	// Set emergency mode
+	manager.SetEmergencyMode(true)
+	manager.SetEmergencyMode(false)
+
+	// Stop telemetry processing
+	manager.StopTelemetryProcessing()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
 }

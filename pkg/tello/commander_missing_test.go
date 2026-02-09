@@ -1,6 +1,7 @@
 package tello
 
 import (
+	"context"
 	"testing"
 )
 
@@ -19,7 +20,7 @@ func TestStreamCommands(t *testing.T) {
 			t.Errorf("Expected queue size 1, got %d", queue.Size())
 		}
 
-		req, ok := queue.Dequeue()
+		req, ok := queue.Dequeue(context.Background())
 		if !ok || req.Command != "streamon" {
 			t.Errorf("Expected 'streamon' command, got '%s'", req.Command)
 		}
@@ -39,7 +40,7 @@ func TestStreamCommands(t *testing.T) {
 			t.Errorf("Expected queue size 1, got %d", queue.Size())
 		}
 
-		req, ok := queue.Dequeue()
+		req, ok := queue.Dequeue(context.Background())
 		if !ok || req.Command != "streamoff" {
 			t.Errorf("Expected 'streamoff' command, got '%s'", req.Command)
 		}
@@ -61,7 +62,7 @@ func TestGoCommand(t *testing.T) {
 			t.Errorf("Expected queue size 1, got %d", queue.Size())
 		}
 
-		req, ok := queue.Dequeue()
+		req, ok := queue.Dequeue(context.Background())
 		if !ok || req.Command != "go 100 200 300 50" {
 			t.Errorf("Expected 'go 100 200 300 50' command, got '%s'", req.Command)
 		}
@@ -157,7 +158,7 @@ func TestCurveCommand(t *testing.T) {
 			t.Errorf("Expected queue size 1, got %d", queue.Size())
 		}
 
-		req, ok := queue.Dequeue()
+		req, ok := queue.Dequeue(context.Background())
 		if !ok || req.Command != "curve 25 25 25 30 30 30 30" {
 			t.Errorf("Expected 'curve 25 25 25 30 30 30 30' command, got '%s'", req.Command)
 		}
@@ -306,7 +307,7 @@ func TestMovementCommandBoundaries(t *testing.T) {
 					t.Errorf("Expected no error for %s with value %d, got %v", test.name, test.value, err)
 				}
 
-				req, ok := queue.Dequeue()
+				req, ok := queue.Dequeue(context.Background())
 				if !ok || req.Command != test.command {
 					t.Errorf("Expected '%s' command for %s, got '%s'", test.command, test.name, req.Command)
 				}
@@ -344,7 +345,7 @@ func TestMovementCommandBoundaries(t *testing.T) {
 					t.Errorf("Expected no error for %s with value %d, got %v", test.name, test.value, err)
 				}
 
-				req, ok := queue.Dequeue()
+				req, ok := queue.Dequeue(context.Background())
 				if !ok || req.Command != test.command {
 					t.Errorf("Expected '%s' command for %s, got '%s'", test.command, test.name, req.Command)
 				}
@@ -365,7 +366,7 @@ func TestSetSpeedBoundaries(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error for speed 10, got %v", err)
 		}
-		req, ok := queue.Dequeue()
+		req, ok := queue.Dequeue(context.Background())
 		if !ok || req.Command != "speed 10" {
 			t.Errorf("Expected 'speed 10' command, got '%s'", req.Command)
 		}
@@ -375,7 +376,7 @@ func TestSetSpeedBoundaries(t *testing.T) {
 		if err != nil {
 			t.Errorf("Expected no error for speed 100, got %v", err)
 		}
-		req, ok = queue.Dequeue()
+		req, ok = queue.Dequeue(context.Background())
 		if !ok || req.Command != "speed 100" {
 			t.Errorf("Expected 'speed 100' command, got '%s'", req.Command)
 		}
@@ -431,7 +432,7 @@ func TestFlipDirections(t *testing.T) {
 					t.Errorf("Expected no error for flip %s, got %v", test.direction, err)
 				}
 
-				req, ok := queue.Dequeue()
+				req, ok := queue.Dequeue(context.Background())
 				if !ok || req.Command != test.command {
 					t.Errorf("Expected '%s' command for flip %s, got '%s'", test.command, test.direction, req.Command)
 				}
@@ -455,7 +456,7 @@ func TestFlipDirections(t *testing.T) {
 			t.Errorf("Expected queue size 1 for invalid direction (no validation), got %d", queue.Size())
 		}
 
-		req, ok := queue.Dequeue()
+		req, ok := queue.Dequeue(context.Background())
 		if !ok || req.Command != "flip invalid" {
 			t.Errorf("Expected 'flip invalid' command, got '%s'", req.Command)
 		}

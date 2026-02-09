@@ -8,6 +8,7 @@ import (
 
 	"github.com/conceptcodes/dji-tello-sdk-go/pkg/ml"
 	"github.com/stretchr/testify/assert"
+	"go.uber.org/goleak"
 )
 
 func TestVideoFrame_ToEnhancedFrame(t *testing.T) {
@@ -302,4 +303,132 @@ func TestMLVideoIntegration_ContextCancellation(t *testing.T) {
 	}
 
 	assert.False(t, integration.IsRunning())
+}
+
+// ==================== Goroutine Leak Detection Tests ====================
+
+// TestMLVideoIntegrationShutdownNoLeak verifies no goroutines leak after ML video integration shutdown
+func TestMLVideoIntegrationShutdownNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mlConfig := &ml.MLConfig{
+		Processors: []ml.ProcessorConfig{},
+		Pipeline: ml.PipelineConfig{
+			MaxConcurrentProcessors: 2,
+			FrameBufferSize:         100,
+			WorkerPoolSize:          4,
+			EnableMetrics:           false,
+			TargetFPS:               30,
+		},
+		Overlay: ml.OverlayConfig{
+			Enabled: false,
+		},
+	}
+
+	integration, err := NewMLVideoIntegration("0.0.0.0:6070", mlConfig)
+	if err != nil {
+		t.Skipf("Skipping test due to UDP bind error: %v", err)
+		return
+	}
+
+	// Start integration
+	err = integration.Start()
+	if err != nil {
+		t.Skipf("Skipping test due to start error: %v", err)
+		return
+	}
+
+	// Stop integration
+	err = integration.Stop()
+	if err != nil {
+		t.Fatalf("Failed to stop integration: %v", err)
+	}
+
+	// Wait for cleanup
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestMLVideoIntegrationMultipleStartStopNoLeak verifies no leaks during multiple start/stop cycles
+func TestMLVideoIntegrationMultipleStartStopNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mlConfig := &ml.MLConfig{
+		Processors: []ml.ProcessorConfig{},
+		Pipeline: ml.PipelineConfig{
+			MaxConcurrentProcessors: 2,
+			FrameBufferSize:         100,
+			WorkerPoolSize:          4,
+			EnableMetrics:           false,
+			TargetFPS:               30,
+		},
+		Overlay: ml.OverlayConfig{
+			Enabled: false,
+		},
+	}
+
+	integration, err := NewMLVideoIntegration("0.0.0.0:6071", mlConfig)
+	if err != nil {
+		t.Skipf("Skipping test due to UDP bind error: %v", err)
+		return
+	}
+
+	// Perform multiple start/stop cycles
+	for i := 0; i < 3; i++ {
+		err = integration.Start()
+		if err != nil {
+			t.Fatalf("Failed to start integration: %v", err)
+		}
+
+		err = integration.Stop()
+		if err != nil {
+			t.Fatalf("Failed to stop integration: %v", err)
+		}
+
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// TestMLVideoIntegrationConcurrentOperationsNoLeak verifies no leaks during concurrent operations
+func TestMLVideoIntegrationConcurrentOperationsNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	mlConfig := &ml.MLConfig{
+		Processors: []ml.ProcessorConfig{},
+		Pipeline: ml.PipelineConfig{
+			MaxConcurrentProcessors: 2,
+			FrameBufferSize:         100,
+			WorkerPoolSize:          4,
+			EnableMetrics:           false,
+			TargetFPS:               30,
+		},
+		Overlay: ml.OverlayConfig{
+			Enabled: false,
+		},
+	}
+
+	integration, err := NewMLVideoIntegration("0.0.0.0:6072", mlConfig)
+	if err != nil {
+		t.Skipf("Skipping test due to UDP bind error: %v", err)
+		return
+	}
+
+	// Start integration
+	err = integration.Start()
+	if err != nil {
+		t.Skipf("Skipping test due to start error: %v", err)
+		return
+	}
+
+	// Get channels (we can't close receive-only channels, but we can access them)
+	_ = integration.GetFrameChannel()
+	_ = integration.GetMLResults()
+
+	// Stop integration
+	err = integration.Stop()
+	if err != nil {
+		t.Fatalf("Failed to stop integration: %v", err)
+	}
+
+	// Wait for cleanup
+	time.Sleep(100 * time.Millisecond)
 }

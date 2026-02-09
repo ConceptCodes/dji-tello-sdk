@@ -1,6 +1,7 @@
 package tello
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -42,23 +43,23 @@ func TestPriorityCommandQueue(t *testing.T) {
 	}
 
 	// Test dequeue order - high priority commands should come first
-	req, ok := pq.Dequeue()
+	req, ok := pq.Dequeue(context.Background())
 	if !ok || req.Command != "speed?" {
 		t.Errorf("Expected first command to be 'speed?', got '%s'", req.Command)
 	}
 
-	req, ok = pq.Dequeue()
+	req, ok = pq.Dequeue(context.Background())
 	if !ok || req.Command != "battery?" {
 		t.Errorf("Expected second command to be 'battery?', got '%s'", req.Command)
 	}
 
 	// Now low priority commands
-	req, ok = pq.Dequeue()
+	req, ok = pq.Dequeue(context.Background())
 	if !ok || req.Command != "takeoff" {
 		t.Errorf("Expected third command to be 'takeoff', got '%s'", req.Command)
 	}
 
-	req, ok = pq.Dequeue()
+	req, ok = pq.Dequeue(context.Background())
 	if !ok || req.Command != "land" {
 		t.Errorf("Expected fourth command to be 'land', got '%s'", req.Command)
 	}
@@ -110,18 +111,18 @@ func TestPriorityCommandQueueWithPriority(t *testing.T) {
 	pq.EnqueueWithPriority("land", PriorityLow)
 
 	// Should process high priority first
-	req, ok := pq.Dequeue()
+	req, ok := pq.Dequeue(context.Background())
 	if !ok || req.Command != "speed?" {
 		t.Errorf("Expected 'speed?' first, got '%s'", req.Command)
 	}
 
 	// Then low priority in FIFO order
-	req, ok = pq.Dequeue()
+	req, ok = pq.Dequeue(context.Background())
 	if !ok || req.Command != "takeoff" {
 		t.Errorf("Expected 'takeoff' second, got '%s'", req.Command)
 	}
 
-	req, ok = pq.Dequeue()
+	req, ok = pq.Dequeue(context.Background())
 	if !ok || req.Command != "land" {
 		t.Errorf("Expected 'land' third, got '%s'", req.Command)
 	}
@@ -161,7 +162,7 @@ func TestPriorityCommandQueueConcurrency(t *testing.T) {
 	totalCount := 0
 
 	for totalCount < 20 {
-		req, ok := pq.Dequeue()
+		req, ok := pq.Dequeue(context.Background())
 		if !ok {
 			break
 		}

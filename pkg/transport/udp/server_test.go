@@ -1,10 +1,15 @@
 package udp
 
 import (
+	"context"
 	"net"
+	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
 
 func TestNewUDPServer(t *testing.T) {
@@ -62,7 +67,7 @@ func TestNewUDPServerInvalidAddress(t *testing.T) {
 				}
 
 				// Try to start the server - this should fail
-				startErr := server.Start()
+				startErr := server.Start(context.Background())
 				if startErr == nil {
 					t.Errorf("Expected error when starting server with address '%s'", test.address)
 				}
@@ -106,7 +111,7 @@ func TestUDPServerStart(t *testing.T) {
 	// Start server in goroutine
 	startErr := make(chan error, 1)
 	go func() {
-		startErr <- server.Start()
+		startErr <- server.Start(context.Background())
 	}()
 
 	// Wait a bit for server to start
@@ -151,14 +156,14 @@ func TestUDPServerStartAlreadyStarted(t *testing.T) {
 
 	// Start server
 	go func() {
-		_ = server.Start()
+		_ = server.Start(context.Background())
 	}()
 
 	// Wait for server to start
 	time.Sleep(100 * time.Millisecond)
 
 	// Try to start again
-	err = server.Start()
+	err = server.Start(context.Background())
 	if err == nil {
 		t.Error("Expected error when starting already started server")
 	}
@@ -176,7 +181,7 @@ func TestUDPServerStop(t *testing.T) {
 	// Start server in goroutine
 	startDone := make(chan error, 1)
 	go func() {
-		startDone <- server.Start()
+		startDone <- server.Start(context.Background())
 	}()
 
 	// Wait for server to start
@@ -232,7 +237,7 @@ func TestUDPServerDataHandling(t *testing.T) {
 
 	// Start server
 	go func() {
-		_ = server.Start()
+		_ = server.Start(context.Background())
 	}()
 
 	// Wait for server to start
@@ -286,7 +291,7 @@ func TestUDPServerErrorHandling(t *testing.T) {
 
 	// Start server
 	go func() {
-		_ = server.Start()
+		_ = server.Start(context.Background())
 	}()
 
 	// Wait for server to start
@@ -318,7 +323,7 @@ func TestUDPServerConcurrency(t *testing.T) {
 
 	// Start server
 	go func() {
-		_ = server.Start()
+		_ = server.Start(context.Background())
 	}()
 
 	// Wait for server to start
@@ -365,4 +370,256 @@ func TestUDPServerConcurrency(t *testing.T) {
 	if finalCount == 0 {
 		t.Error("Expected to receive some data, got none")
 	}
+}
+
+// TestUDPServerLoad is a stress/load test that verifies the UDP server
+// handles high traffic without crashes, deadlocks, or excessive goroutine growth.
+func TestUDPServerLoad(t *testing.T) {
+	// Track errors and dropped packets
+	var errorCount int64
+	var muError sync.Mutex
+	dataCount := int64(0)
+
+	onData := func(data []byte, addr *net.UDPAddr) {
+		atomic.AddInt64(&dataCount, 1)
+	}
+
+	onError := func(err error) {
+		muError.Lock()
+		errorCount++
+		muError.Unlock()
+	}
+
+	server, err := NewUDPServer("127.0.0.1:8899", WithOnData(onData), WithOnError(onError))
+	if err != nil {
+		t.Fatalf("Failed to create UDP server: %v", err)
+	}
+
+	// Start server
+	go func() {
+		_ = server.Start(context.Background())
+	}()
+
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Baseline goroutine count
+	baselineGoroutines := runtime.NumGoroutine()
+	t.Logf("Baseline goroutines: %d", baselineGoroutines)
+
+	// Load test parameters
+	numPackets := 10000          // 10000 total packets
+	packetsPerSecond := 1000     // 1000 packets/sec
+	duration := 10 * time.Second // 10 seconds
+
+	// Create UDP connection for sending
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 8899,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create test connection: %v", err)
+	}
+	defer conn.Close()
+
+	// Send packets at controlled rate
+	testData := []byte("load-test-packet-data-")
+	packetInterval := time.Second / time.Duration(packetsPerSecond)
+
+	t.Logf("Starting load test: %d packets over %v (%d packets/sec)", numPackets, duration, packetsPerSecond)
+
+	// Send packets with rate limiting
+	packetChan := make(chan struct{}, packetsPerSecond)
+	for i := 0; i < packetsPerSecond; i++ {
+		packetChan <- struct{}{}
+	}
+
+	// Stop sending after duration or numPackets
+	stopTime := time.Now().Add(duration)
+	packetsSent := 0
+
+	for i := 0; i < numPackets && time.Now().Before(stopTime); i++ {
+		select {
+		case <-packetChan:
+			_, err = conn.Write(testData)
+			if err != nil {
+				t.Logf("Failed to send packet %d: %v", i, err)
+			}
+			packetsSent++
+			// Add packet to channel to maintain rate
+			go func() {
+				time.Sleep(packetInterval)
+				packetChan <- struct{}{}
+			}()
+		case <-time.After(packetInterval):
+			// If rate limiter is slow, just send anyway
+			_, err = conn.Write(testData)
+			if err != nil {
+				t.Logf("Failed to send packet %d: %v", i, err)
+			}
+			packetsSent++
+		}
+	}
+
+	t.Logf("Packets sent: %d", packetsSent)
+
+	// Wait for packet processing to complete
+	time.Sleep(2 * time.Second)
+
+	// Check goroutine count during/after load
+	maxGoroutines := baselineGoroutines + 105 // Allow 5 extra for test overhead + 100 handlers
+	postLoadGoroutines := runtime.NumGoroutine()
+	t.Logf("Post-load goroutines: %d (max allowed: %d)", postLoadGoroutines, maxGoroutines)
+
+	// Verify goroutine count is bounded
+	if postLoadGoroutines > maxGoroutines {
+		t.Errorf("Goroutine count exceeded limit: got %d, max allowed %d", postLoadGoroutines, maxGoroutines)
+	}
+
+	// Check for dropped packets
+	dropped := atomic.LoadInt64(&server.droppedPackets)
+	t.Logf("Dropped packets: %d", dropped)
+
+	// Check for errors
+	muError.Lock()
+	errors := errorCount
+	muError.Unlock()
+	t.Logf("Error callbacks: %d", errors)
+
+	// Verify data was received
+	finalDataCount := atomic.LoadInt64(&dataCount)
+	t.Logf("Data packets received: %d", finalDataCount)
+
+	// Clean up
+	server.Stop()
+
+	// Wait for server to stop
+	time.Sleep(500 * time.Millisecond)
+
+	// Final goroutine check
+	finalGoroutines := runtime.NumGoroutine()
+	t.Logf("Final goroutines: %d", finalGoroutines)
+
+	// Verify the server handled the load without issues
+	if errors > 0 {
+		t.Logf("Note: %d error callbacks occurred during load test", errors)
+	}
+
+	// This test primarily verifies:
+	// 1. No crash under load
+	// 2. Goroutines stay bounded
+	// 3. Dropped packets are tracked (if any)
+	// 4. No deadlock (server stops cleanly)
+}
+
+// ==================== Goroutine Leak Detection Tests ====================
+
+// TestUDPServerShutdownNoLeak verifies no goroutines leak after UDP server shutdown
+func TestUDPServerShutdownNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	dataReceived := make(chan []byte, 10)
+
+	onData := func(data []byte, addr *net.UDPAddr) {
+		dataReceived <- data
+	}
+
+	server, err := NewUDPServer("127.0.0.1:8900", WithOnData(onData))
+	if err != nil {
+		t.Fatalf("Failed to create UDP server: %v", err)
+	}
+
+	// Start server
+	go func() {
+		_ = server.Start(context.Background())
+	}()
+
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Send some test data
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 8900,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create test connection: %v", err)
+	}
+	defer conn.Close()
+
+	testData := []byte("test data for leak detection")
+	_, err = conn.Write(testData)
+	if err != nil {
+		t.Fatalf("Failed to send test data: %v", err)
+	}
+
+	// Wait for data to be received
+	select {
+	case <-dataReceived:
+		// Data received successfully
+	case <-time.After(1 * time.Second):
+		t.Log("Warning: Data not received during leak test")
+	}
+
+	// Stop server
+	server.Stop()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestUDPServerMultipleStartStopNoLeak verifies no leaks during multiple start/stop cycles
+func TestUDPServerMultipleStartStopNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	server, err := NewUDPServer("127.0.0.1:8901")
+	if err != nil {
+		t.Fatalf("Failed to create UDP server: %v", err)
+	}
+
+	// Perform multiple start/stop cycles
+	for i := 0; i < 3; i++ {
+		go func() {
+			_ = server.Start(context.Background())
+		}()
+
+		time.Sleep(100 * time.Millisecond)
+		server.Stop()
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
+}
+
+// TestUDPServerConcurrentStopNoLeak verifies no leaks when stopping concurrently
+func TestUDPServerConcurrentStopNoLeak(t *testing.T) {
+	defer goleak.VerifyNone(t)
+
+	server, err := NewUDPServer("127.0.0.1:8902")
+	if err != nil {
+		t.Fatalf("Failed to create UDP server: %v", err)
+	}
+
+	// Start server
+	go func() {
+		_ = server.Start(context.Background())
+	}()
+
+	// Wait for server to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Stop server multiple times concurrently
+	var wg sync.WaitGroup
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			server.Stop()
+		}()
+	}
+	wg.Wait()
+
+	// Give goroutines time to clean up
+	time.Sleep(100 * time.Millisecond)
 }

@@ -1,6 +1,7 @@
 package tello
 
 import (
+	"context"
 	"testing"
 )
 
@@ -47,7 +48,7 @@ func BenchmarkPriorityCommandQueueDequeue(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		queue.Dequeue()
+		queue.Dequeue(context.Background())
 	}
 }
 
