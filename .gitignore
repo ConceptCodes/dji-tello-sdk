@@ -3,3 +3,6 @@ coverage.out
 bin
 models/
 lib/
+
+.sisyphus
+roadmap/
