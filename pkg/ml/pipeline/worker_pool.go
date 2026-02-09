@@ -23,7 +23,6 @@ type Worker struct {
 	workerPool *WorkerPool
 	inputChan  chan *ml.EnhancedVideoFrame
 	outputChan chan WorkerResult
-	quit       chan struct{}
 	mu         sync.RWMutex
 	running    bool
 	metrics    WorkerMetrics
@@ -43,10 +42,11 @@ type WorkerPool struct {
 	workers     []*Worker
 	jobQueue    chan *ml.EnhancedVideoFrame
 	workerQueue chan chan *ml.EnhancedVideoFrame
-	quit        chan struct{}
 	mu          sync.RWMutex
 	running     bool
 	maxWorkers  int
+	wg          sync.WaitGroup
+	done        chan struct{}
 }
 
 // NewWorker creates a new worker with the given processor
@@ -55,7 +55,6 @@ func NewWorker(processor processors.MLProcessor, poolSize int) *Worker {
 		processor:  processor,
 		inputChan:  make(chan *ml.EnhancedVideoFrame, poolSize),
 		outputChan: make(chan WorkerResult, poolSize),
-		quit:       make(chan struct{}),
 		running:    false,
 		metrics: WorkerMetrics{
 			ProcessedCount:  0,
@@ -84,21 +83,14 @@ func (w *Worker) Start(ctx context.Context) error {
 // Stop stops the worker
 func (w *Worker) Stop() error {
 	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	if !w.running {
-		w.mu.Unlock()
 		return nil
 	}
 	w.running = false
-	w.mu.Unlock()
 
-	// Signal quit without closing channel (goroutine will close it)
-	select {
-	case <-w.quit:
-		// Already closed
-	default:
-		close(w.quit)
-	}
-
+	// Context cancellation is handled by the caller
 	// Don't close input/output channels here - let the run goroutine handle it
 	// to avoid panic from concurrent reads/writes
 
@@ -162,8 +154,6 @@ func (w *Worker) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-w.quit:
-			return
 		case frame, ok := <-w.inputChan:
 			if !ok {
 				// Channel closed, exit
@@ -184,8 +174,6 @@ func (w *Worker) run(ctx context.Context) {
 			select {
 			case w.outputChan <- WorkerResult{Frame: frame, Result: result, Error: err}:
 			case <-ctx.Done():
-				return
-			case <-w.quit:
 				return
 			default:
 				// Output channel is full, drop result
@@ -222,9 +210,9 @@ func NewWorkerPool(maxWorkers int) *WorkerPool {
 		workers:     make([]*Worker, 0, maxWorkers),
 		jobQueue:    make(chan *ml.EnhancedVideoFrame, maxWorkers*10),
 		workerQueue: make(chan chan *ml.EnhancedVideoFrame, maxWorkers),
-		quit:        make(chan struct{}),
 		running:     false,
 		maxWorkers:  maxWorkers,
+		done:        make(chan struct{}),
 	}
 }
 
@@ -239,7 +227,15 @@ func (wp *WorkerPool) Start(ctx context.Context) error {
 
 	wp.running = true
 
+	// Recreate done channel if it was closed
+	select {
+	case <-wp.done:
+		wp.done = make(chan struct{})
+	default:
+	}
+
 	// Start dispatcher
+	wp.wg.Add(1)
 	go wp.dispatcher(ctx)
 
 	return nil
@@ -248,19 +244,26 @@ func (wp *WorkerPool) Start(ctx context.Context) error {
 // Stop stops the worker pool
 func (wp *WorkerPool) Stop() error {
 	wp.mu.Lock()
-	defer wp.mu.Unlock()
 
 	if !wp.running {
+		wp.mu.Unlock()
 		return nil
 	}
 
-	close(wp.quit)
 	wp.running = false
 
 	// Stop all workers
 	for _, worker := range wp.workers {
 		worker.Stop()
 	}
+
+	// Signal dispatcher to exit
+	close(wp.done)
+
+	wp.mu.Unlock()
+
+	// Wait for dispatcher to finish before closing channels
+	wp.wg.Wait()
 
 	// Close channels
 	close(wp.jobQueue)
@@ -357,11 +360,12 @@ func (wp *WorkerPool) IsRunning() bool {
 
 // dispatcher distributes jobs to available workers
 func (wp *WorkerPool) dispatcher(ctx context.Context) {
+	defer wp.wg.Done()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-wp.quit:
+		case <-wp.done:
 			return
 		case job := <-wp.jobQueue:
 			if job == nil {
@@ -369,7 +373,14 @@ func (wp *WorkerPool) dispatcher(ctx context.Context) {
 			}
 
 			// Get a worker channel
-			workerChan := <-wp.workerQueue
+			var workerChan chan *ml.EnhancedVideoFrame
+			select {
+			case workerChan = <-wp.workerQueue:
+			case <-ctx.Done():
+				return
+			case <-wp.done:
+				return
+			}
 
 			// Send job to worker
 			select {
@@ -377,7 +388,7 @@ func (wp *WorkerPool) dispatcher(ctx context.Context) {
 				// Job sent successfully
 			case <-ctx.Done():
 				return
-			case <-wp.quit:
+			case <-wp.done:
 				return
 			default:
 				// Worker is busy, put job back in queue
@@ -385,13 +396,19 @@ func (wp *WorkerPool) dispatcher(ctx context.Context) {
 					select {
 					case wp.jobQueue <- job:
 					case <-ctx.Done():
-					case <-wp.quit:
+					case <-wp.done:
 					}
 				}()
 			}
 
 			// Put worker channel back in queue
-			wp.workerQueue <- workerChan
+			select {
+			case wp.workerQueue <- workerChan:
+			case <-ctx.Done():
+				return
+			case <-wp.done:
+				return
+			}
 		}
 	}
 }
