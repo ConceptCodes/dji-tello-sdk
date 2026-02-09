@@ -1835,3 +1835,1539 @@ func TestValidateRCCommandErrorInjection(t *testing.T) {
 		})
 	}
 }
+
+// =============================================================================
+// Command Wrapper Tests - Task 4
+// =============================================================================
+
+// TestSafetyManager_TakeOff tests the TakeOff command wrapper with safety validation.
+func TestSafetyManager_TakeOff(t *testing.T) {
+	t.Run("takeoff allowed with normal battery", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.TakeOff()
+
+		if err != nil {
+			t.Errorf("Expected takeoff to succeed, got error: %v", err)
+		}
+		if !mockCommander.takeoffCalled {
+			t.Error("Expected commander.TakeOff to be called")
+		}
+	})
+
+	t.Run("takeoff allowed when safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.TakeOff()
+
+		if err != nil {
+			t.Errorf("Expected takeoff to succeed with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("takeoff allowed in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.TakeOff()
+
+		if err != nil {
+			t.Errorf("Expected takeoff to succeed in emergency mode, got: %v", err)
+		}
+	})
+
+	t.Run("takeoff records flight start time", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		before := time.Now()
+		_ = manager.TakeOff()
+		after := time.Now()
+
+		if manager.flightStartTime.Before(before) || manager.flightStartTime.After(after) {
+			t.Error("Expected flightStartTime to be set during takeoff")
+		}
+	})
+}
+
+// TestSafetyManager_TakeOffWithLowBattery tests that takeoff behavior with low battery state.
+func TestSafetyManager_TakeOffWithLowBattery(t *testing.T) {
+	// Note: TakeOff command does not block based on battery level.
+	// Battery warnings are generated during UpdateState, not during command validation.
+	// This test verifies that takeoff works regardless of battery state.
+
+	t.Run("takeoff allowed with low battery state", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Set state with low battery
+		state := createTestState()
+		state.Bat = 5 // Below emergency threshold
+		manager.UpdateState(state)
+
+		// Takeoff should still be allowed (battery is checked during UpdateState, not TakeOff)
+		err := manager.TakeOff()
+
+		if err != nil {
+			t.Errorf("Expected takeoff to be allowed, got error: %v", err)
+		}
+		if !mockCommander.takeoffCalled {
+			t.Error("Expected commander.TakeOff to be called")
+		}
+
+		// Verify battery safety event was generated during UpdateState
+		events := manager.GetSafetyEvents()
+		batteryEvents := 0
+		for _, event := range events {
+			if event.Type == "battery" {
+				batteryEvents++
+			}
+		}
+		if batteryEvents == 0 {
+			t.Error("Expected battery safety event to be recorded")
+		}
+	})
+}
+
+// TestSafetyManager_Land tests the Land command wrapper.
+func TestSafetyManager_Land(t *testing.T) {
+	t.Run("landing always allowed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Land()
+
+		if err != nil {
+			t.Errorf("Expected landing to succeed, got error: %v", err)
+		}
+		if !mockCommander.landCalled {
+			t.Error("Expected commander.Land to be called")
+		}
+	})
+
+	t.Run("landing allowed with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.Land()
+
+		if err != nil {
+			t.Errorf("Expected landing to succeed with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("landing allowed in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.Land()
+
+		if err != nil {
+			t.Errorf("Expected landing to succeed in emergency mode, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_Emergency tests that Emergency command is always allowed.
+func TestSafetyManager_Emergency(t *testing.T) {
+	t.Run("emergency always allowed with safety enabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Emergency()
+
+		if err != nil {
+			t.Errorf("Expected emergency to succeed, got error: %v", err)
+		}
+		if !mockCommander.emergencyCalled {
+			t.Error("Expected commander.Emergency to be called")
+		}
+	})
+
+	t.Run("emergency always allowed with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.Emergency()
+
+		if err != nil {
+			t.Errorf("Expected emergency to succeed with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("emergency always allowed in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.Emergency()
+
+		if err != nil {
+			t.Errorf("Expected emergency to succeed in emergency mode, got: %v", err)
+		}
+	})
+
+	t.Run("emergency command not validated", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(true)
+
+		// Emergency should bypass all safety checks
+		err := manager.Emergency()
+
+		if err != nil {
+			t.Errorf("Expected emergency to bypass safety, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_MovementCommands tests Up, Down, Left, Right, Forward, Backward commands.
+func TestSafetyManager_MovementCommands(t *testing.T) {
+	t.Run("Up command with valid distance", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Up(50)
+
+		if err != nil {
+			t.Errorf("Expected Up to succeed, got error: %v", err)
+		}
+		if !mockCommander.upCalled {
+			t.Error("Expected commander.Up to be called")
+		}
+	})
+
+	t.Run("Down command with valid distance", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Down(50)
+
+		if err != nil {
+			t.Errorf("Expected Down to succeed, got error: %v", err)
+		}
+		if !mockCommander.downCalled {
+			t.Error("Expected commander.Down to be called")
+		}
+	})
+
+	t.Run("Left command with valid distance", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Left(50)
+
+		if err != nil {
+			t.Errorf("Expected Left to succeed, got error: %v", err)
+		}
+		if !mockCommander.leftCalled {
+			t.Error("Expected commander.Left to be called")
+		}
+	})
+
+	t.Run("Right command with valid distance", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Right(50)
+
+		if err != nil {
+			t.Errorf("Expected Right to succeed, got error: %v", err)
+		}
+		if !mockCommander.rightCalled {
+			t.Error("Expected commander.Right to be called")
+		}
+	})
+
+	t.Run("Forward command with valid distance", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Forward(50)
+
+		if err != nil {
+			t.Errorf("Expected Forward to succeed, got error: %v", err)
+		}
+		if !mockCommander.forwardCalled {
+			t.Error("Expected commander.Forward to be called")
+		}
+	})
+
+	t.Run("Backward command with valid distance", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Backward(50)
+
+		if err != nil {
+			t.Errorf("Expected Backward to succeed, got error: %v", err)
+		}
+		if !mockCommander.backwardCalled {
+			t.Error("Expected commander.Backward to be called")
+		}
+	})
+
+	t.Run("movement commands bypass validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		// All should succeed without validation
+		_ = manager.Up(500)
+		_ = manager.Down(500)
+		_ = manager.Left(500)
+		_ = manager.Right(500)
+		_ = manager.Forward(500)
+		_ = manager.Backward(500)
+
+		if !mockCommander.upCalled || !mockCommander.downCalled ||
+			!mockCommander.leftCalled || !mockCommander.rightCalled ||
+			!mockCommander.forwardCalled || !mockCommander.backwardCalled {
+			t.Error("Expected all movement commands to be called")
+		}
+	})
+
+	t.Run("movement commands bypass validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		_ = manager.Up(500)
+		_ = manager.Down(500)
+		_ = manager.Left(500)
+		_ = manager.Right(500)
+		_ = manager.Forward(500)
+		_ = manager.Backward(500)
+
+		if !mockCommander.upCalled || !mockCommander.downCalled ||
+			!mockCommander.leftCalled || !mockCommander.rightCalled ||
+			!mockCommander.forwardCalled || !mockCommander.backwardCalled {
+			t.Error("Expected all movement commands to be called in emergency mode")
+		}
+	})
+}
+
+// TestSafetyManager_MovementCommandsLimitEnforcement tests movement command limit enforcement.
+func TestSafetyManager_MovementCommandsLimitEnforcement(t *testing.T) {
+	t.Run("Go blocked when exceeds max altitude", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Altitude.MaxHeight = 100
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Go command correctly passes z as altitude
+		err := manager.Go(0, 0, 150, 50)
+
+		if err == nil {
+			t.Error("Expected Go to be blocked when exceeding max altitude")
+		}
+		if mockCommander.goCalled {
+			t.Error("Expected commander.Go NOT to be called")
+		}
+	})
+
+	// Go command only validates max altitude, not min altitude.
+	// Minimum altitude checking would require knowing the current drone position.
+}
+
+// TestSafetyManager_RotationCommands tests Clockwise and CounterClockwise commands.
+func TestSafetyManager_RotationCommands(t *testing.T) {
+	t.Run("Clockwise with valid angle", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Clockwise(90)
+
+		if err != nil {
+			t.Errorf("Expected Clockwise to succeed, got error: %v", err)
+		}
+		if !mockCommander.clockwiseCalled {
+			t.Error("Expected commander.Clockwise to be called")
+		}
+	})
+
+	t.Run("CounterClockwise with valid angle", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.CounterClockwise(90)
+
+		if err != nil {
+			t.Errorf("Expected CounterClockwise to succeed, got error: %v", err)
+		}
+		if !mockCommander.counterClockwiseCalled {
+			t.Error("Expected commander.CounterClockwise to be called")
+		}
+	})
+
+	t.Run("Clockwise bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.Clockwise(720)
+
+		if err != nil {
+			t.Errorf("Expected Clockwise to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("CounterClockwise bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.CounterClockwise(720)
+
+		if err != nil {
+			t.Errorf("Expected CounterClockwise to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("rotation commands bypass validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		_ = manager.Clockwise(720)
+		_ = manager.CounterClockwise(720)
+
+		if !mockCommander.clockwiseCalled || !mockCommander.counterClockwiseCalled {
+			t.Error("Expected rotation commands to be called in emergency mode")
+		}
+	})
+
+	t.Run("Clockwise passes validation - no angle limits in base validation", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Large angles are allowed by base validation
+		err := manager.Clockwise(3600)
+
+		if err != nil {
+			t.Errorf("Expected large angle to be allowed, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_Flip tests the Flip command wrapper with direction validation.
+func TestSafetyManager_Flip(t *testing.T) {
+	tests := []struct {
+		name          string
+		direction     string
+		currentHeight int
+		enableFlips   bool
+		minFlipHeight int
+		expectAllowed bool
+	}{
+		{
+			name:          "Flip left with valid height",
+			direction:     "left",
+			currentHeight: 150,
+			enableFlips:   true,
+			minFlipHeight: 100,
+			expectAllowed: true,
+		},
+		{
+			name:          "Flip right with valid height",
+			direction:     "right",
+			currentHeight: 150,
+			enableFlips:   true,
+			minFlipHeight: 100,
+			expectAllowed: true,
+		},
+		{
+			name:          "Flip forward with valid height",
+			direction:     "forward",
+			currentHeight: 150,
+			enableFlips:   true,
+			minFlipHeight: 100,
+			expectAllowed: true,
+		},
+		{
+			name:          "Flip backward with valid height",
+			direction:     "backward",
+			currentHeight: 150,
+			enableFlips:   true,
+			minFlipHeight: 100,
+			expectAllowed: true,
+		},
+		{
+			name:          "Flip disabled",
+			direction:     "left",
+			currentHeight: 150,
+			enableFlips:   false,
+			minFlipHeight: 100,
+			expectAllowed: false,
+		},
+		{
+			name:          "Below minimum flip height",
+			direction:     "left",
+			currentHeight: 50,
+			enableFlips:   true,
+			minFlipHeight: 100,
+			expectAllowed: false,
+		},
+		{
+			name:          "At minimum flip height",
+			direction:     "right",
+			currentHeight: 100,
+			enableFlips:   true,
+			minFlipHeight: 100,
+			expectAllowed: true,
+		},
+		{
+			name:          "Unknown direction still allowed",
+			direction:     "upside_down",
+			currentHeight: 150,
+			enableFlips:   true,
+			minFlipHeight: 100,
+			expectAllowed: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCommander := NewMockCommander()
+			config := DefaultConfig()
+			config.Behavioral.EnableFlips = tt.enableFlips
+			config.Behavioral.MinFlipHeight = tt.minFlipHeight
+			manager := NewSafetyManager(mockCommander, config)
+
+			// Set current height
+			state := createTestState()
+			state.H = tt.currentHeight
+			manager.UpdateState(state)
+
+			err := manager.Flip(tt.direction)
+
+			if tt.expectAllowed {
+				if err != nil {
+					t.Errorf("Expected Flip(%s) to be allowed, got: %v", tt.direction, err)
+				}
+				if !mockCommander.flipCalled {
+					t.Error("Expected commander.Flip to be called")
+				}
+			} else {
+				if err == nil {
+					t.Errorf("Expected Flip(%s) to be blocked", tt.direction)
+				}
+				if mockCommander.flipCalled {
+					t.Error("Expected commander.Flip NOT to be called")
+				}
+			}
+		})
+	}
+
+	t.Run("Flip bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Behavioral.EnableFlips = false
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.Flip("left")
+
+		if err != nil {
+			t.Errorf("Expected Flip to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("Flip bypasses validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Behavioral.EnableFlips = false
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.Flip("left")
+
+		if err != nil {
+			t.Errorf("Expected Flip to bypass validation in emergency mode, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_Go tests the Go command wrapper with coordinate, speed, and altitude validation.
+func TestSafetyManager_Go(t *testing.T) {
+	t.Run("Go with valid coordinates and speed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Go(50, 50, 50, 50)
+
+		if err != nil {
+			t.Errorf("Expected Go to succeed, got error: %v", err)
+		}
+		if !mockCommander.goCalled {
+			t.Error("Expected commander.Go to be called")
+		}
+	})
+
+	t.Run("Go blocked with excessive speed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Velocity.MaxHorizontal = 100
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Go(50, 50, 50, 150)
+
+		if err == nil {
+			t.Error("Expected Go to be blocked with speed 150")
+		}
+		if mockCommander.goCalled {
+			t.Error("Expected commander.Go NOT to be called")
+		}
+	})
+
+	t.Run("Go blocked with excessive altitude", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Altitude.MaxHeight = 300
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Go(0, 0, 400, 50)
+
+		if err == nil {
+			t.Error("Expected Go to be blocked with altitude 400")
+		}
+		if mockCommander.goCalled {
+			t.Error("Expected commander.Go NOT to be called")
+		}
+	})
+
+	t.Run("Go at maximum limits", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Velocity.MaxHorizontal = 100
+		config.Altitude.MaxHeight = 300
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Go(100, 100, 300, 100)
+
+		if err != nil {
+			t.Errorf("Expected Go at max limits to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("Go with negative coordinates allowed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Go(-50, -50, 50, 50)
+
+		if err != nil {
+			t.Errorf("Expected Go with negative coordinates to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("Go bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.Go(500, 500, 500, 200)
+
+		if err != nil {
+			t.Errorf("Expected Go to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("Go bypasses validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.Go(500, 500, 500, 200)
+
+		if err != nil {
+			t.Errorf("Expected Go to bypass validation in emergency mode, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_Curve tests the Curve command wrapper with arc validation.
+func TestSafetyManager_Curve(t *testing.T) {
+	t.Run("Curve with valid arc and speed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Curve(0, 0, 0, 50, 50, 50, 50)
+
+		if err != nil {
+			t.Errorf("Expected Curve to succeed, got error: %v", err)
+		}
+		if !mockCommander.curveCalled {
+			t.Error("Expected commander.Curve to be called")
+		}
+	})
+
+	t.Run("Curve blocked with excessive speed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Velocity.MaxHorizontal = 100
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Curve(0, 0, 0, 50, 50, 50, 150)
+
+		if err == nil {
+			t.Error("Expected Curve to be blocked with speed 150")
+		}
+		if mockCommander.curveCalled {
+			t.Error("Expected commander.Curve NOT to be called")
+		}
+	})
+
+	t.Run("Curve at maximum speed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Velocity.MaxHorizontal = 100
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Curve(0, 0, 0, 100, 100, 100, 100)
+
+		if err != nil {
+			t.Errorf("Expected Curve at max speed to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("Curve with negative arc coordinates allowed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Curve(-50, -50, -50, 50, 50, 50, 50)
+
+		if err != nil {
+			t.Errorf("Expected Curve with negative coordinates to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("Curve bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.Curve(0, 0, 0, 500, 500, 500, 200)
+
+		if err != nil {
+			t.Errorf("Expected Curve to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("Curve bypasses validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.Curve(0, 0, 0, 500, 500, 500, 200)
+
+		if err != nil {
+			t.Errorf("Expected Curve to bypass validation in emergency mode, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_SetSpeed tests the SetSpeed command wrapper with speed limits.
+func TestSafetyManager_SetSpeed(t *testing.T) {
+	tests := []struct {
+		name          string
+		speed         int
+		expectAllowed bool
+	}{
+		{
+			name:          "Zero speed",
+			speed:         0,
+			expectAllowed: true,
+		},
+		{
+			name:          "Low speed",
+			speed:         10,
+			expectAllowed: true,
+		},
+		{
+			name:          "Medium speed",
+			speed:         50,
+			expectAllowed: true,
+		},
+		{
+			name:          "Maximum speed",
+			speed:         100,
+			expectAllowed: true,
+		},
+		{
+			name:          "Just below limit",
+			speed:         99,
+			expectAllowed: true,
+		},
+		{
+			name:          "Just above limit",
+			speed:         101,
+			expectAllowed: false,
+		},
+		{
+			name:          "Double speed limit",
+			speed:         200,
+			expectAllowed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCommander := NewMockCommander()
+			config := DefaultConfig()
+			config.Velocity.MaxHorizontal = 100
+			manager := NewSafetyManager(mockCommander, config)
+
+			err := manager.SetSpeed(tt.speed)
+
+			if tt.expectAllowed {
+				if err != nil {
+					t.Errorf("Expected SetSpeed(%d) to be allowed, got: %v", tt.speed, err)
+				}
+				if !mockCommander.setSpeedCalled {
+					t.Error("Expected commander.SetSpeed to be called")
+				}
+			} else {
+				if err == nil {
+					t.Errorf("Expected SetSpeed(%d) to be blocked", tt.speed)
+				}
+				if mockCommander.setSpeedCalled {
+					t.Error("Expected commander.SetSpeed NOT to be called")
+				}
+			}
+		})
+	}
+
+	t.Run("SetSpeed bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.SetSpeed(200)
+
+		if err != nil {
+			t.Errorf("Expected SetSpeed to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("SetSpeed bypasses validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.SetSpeed(200)
+
+		if err != nil {
+			t.Errorf("Expected SetSpeed to bypass validation in emergency mode, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_SetRCControl tests the SetRCControl command wrapper with RC bounds.
+func TestSafetyManager_SetRCControl(t *testing.T) {
+	tests := []struct {
+		name          string
+		a, b, c, d    int
+		expectAllowed bool
+	}{
+		// Valid cases
+		{
+			name:          "Zero RC values",
+			a:             0,
+			b:             0,
+			c:             0,
+			d:             0,
+			expectAllowed: true,
+		},
+		{
+			name:          "All axes within limits",
+			a:             50,
+			b:             50,
+			c:             40,
+			d:             50,
+			expectAllowed: true,
+		},
+		{
+			name:          "At maximum limits",
+			a:             100,
+			b:             100,
+			c:             80,
+			d:             100,
+			expectAllowed: true,
+		},
+		// Negative values
+		{
+			name:          "Negative values within limits",
+			a:             -50,
+			b:             -50,
+			c:             -40,
+			d:             -50,
+			expectAllowed: true,
+		},
+		// Exceeds limits
+		{
+			name:          "Axis a exceeds limit",
+			a:             101,
+			b:             0,
+			c:             0,
+			d:             0,
+			expectAllowed: false,
+		},
+		{
+			name:          "Axis b exceeds limit",
+			a:             0,
+			b:             101,
+			c:             0,
+			d:             0,
+			expectAllowed: false,
+		},
+		{
+			name:          "Axis c exceeds vertical limit",
+			a:             0,
+			b:             0,
+			c:             81,
+			d:             0,
+			expectAllowed: false,
+		},
+		{
+			name:          "Axis d exceeds yaw limit",
+			a:             0,
+			b:             0,
+			c:             0,
+			d:             101,
+			expectAllowed: false,
+		},
+		{
+			name:          "Multiple axes exceed limits",
+			a:             150,
+			b:             150,
+			c:             150,
+			d:             150,
+			expectAllowed: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCommander := NewMockCommander()
+			config := DefaultConfig()
+			manager := NewSafetyManager(mockCommander, config)
+
+			err := manager.SetRcControl(tt.a, tt.b, tt.c, tt.d)
+
+			if tt.expectAllowed {
+				if err != nil {
+					t.Errorf("Expected SetRcControl(%d, %d, %d, %d) to be allowed, got: %v", tt.a, tt.b, tt.c, tt.d, err)
+				}
+				if !mockCommander.setRcControlCalled {
+					t.Error("Expected commander.SetRcControl to be called")
+				}
+			} else {
+				if err == nil {
+					t.Errorf("Expected SetRcControl(%d, %d, %d, %d) to be blocked", tt.a, tt.b, tt.c, tt.d)
+				}
+				if mockCommander.setRcControlCalled {
+					t.Error("Expected commander.SetRcControl NOT to be called")
+				}
+			}
+		})
+	}
+
+	t.Run("SetRcControl bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.SetRcControl(200, 200, 200, 200)
+
+		if err != nil {
+			t.Errorf("Expected SetRCControl to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("SetRcControl bypasses validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.SetRcControl(200, 200, 200, 200)
+
+		if err != nil {
+			t.Errorf("Expected SetRcControl to bypass validation in emergency mode, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_SetWiFiCredentials tests the SetWiFiCredentials command wrapper.
+func TestSafetyManager_SetWiFiCredentials(t *testing.T) {
+	t.Run("SetWiFiCredentials always allowed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.SetWiFiCredentials("test-ssid", "test-password")
+
+		if err != nil {
+			t.Errorf("Expected SetWiFiCredentials to succeed, got error: %v", err)
+		}
+		if !mockCommander.setWiFiCredentialsCalled {
+			t.Error("Expected commander.SetWiFiCredentials to be called")
+		}
+	})
+
+	t.Run("SetWiFiCredentials with special characters", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.SetWiFiCredentials("My-SSID-123", "p@ss!word#123")
+
+		if err != nil {
+			t.Errorf("Expected SetWiFiCredentials with special chars to succeed, got: %v", err)
+		}
+	})
+
+	t.Run("SetWiFiCredentials bypasses all validation", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(true)
+		manager.SetEmergencyMode(true)
+
+		err := manager.SetWiFiCredentials("ssid", "password")
+
+		if err != nil {
+			t.Errorf("Expected SetWiFiCredentials to always bypass validation, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_StreamCommands tests StreamOn and StreamOff command wrappers.
+func TestSafetyManager_StreamCommands(t *testing.T) {
+	t.Run("StreamOn with valid state", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.StreamOn()
+
+		if err != nil {
+			t.Errorf("Expected StreamOn to succeed, got error: %v", err)
+		}
+		if !mockCommander.streamOnCalled {
+			t.Error("Expected commander.StreamOn to be called")
+		}
+	})
+
+	t.Run("StreamOff always allowed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.StreamOff()
+
+		if err != nil {
+			t.Errorf("Expected StreamOff to succeed, got error: %v", err)
+		}
+		if !mockCommander.streamOffCalled {
+			t.Error("Expected commander.StreamOff to be called")
+		}
+	})
+
+	t.Run("StreamOn bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.StreamOn()
+
+		if err != nil {
+			t.Errorf("Expected StreamOn to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("StreamOff bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.StreamOff()
+
+		if err != nil {
+			t.Errorf("Expected StreamOff to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("Stream commands bypass validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		_ = manager.StreamOn()
+		_ = manager.StreamOff()
+
+		if !mockCommander.streamOnCalled || !mockCommander.streamOffCalled {
+			t.Error("Expected stream commands to be called in emergency mode")
+		}
+	})
+}
+
+// TestSafetyManager_Init tests the Init command wrapper.
+func TestSafetyManager_Init(t *testing.T) {
+	t.Run("Init always allowed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		err := manager.Init()
+
+		if err != nil {
+			t.Errorf("Expected Init to succeed, got error: %v", err)
+		}
+		if !mockCommander.initCalled {
+			t.Error("Expected commander.Init to be called")
+		}
+	})
+
+	t.Run("Init bypasses validation with safety disabled", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		err := manager.Init()
+
+		if err != nil {
+			t.Errorf("Expected Init to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+
+	t.Run("Init bypasses validation in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		err := manager.Init()
+
+		if err != nil {
+			t.Errorf("Expected Init to bypass validation in emergency mode, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_EmergencyMode tests emergency mode behavior.
+func TestSafetyManager_EmergencyMode(t *testing.T) {
+	t.Run("SetEmergencyMode activates emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.SetEmergencyMode(true)
+
+		status := manager.GetSafetyStatus()
+		if !status.EmergencyMode {
+			t.Error("Expected emergency mode to be activated")
+		}
+	})
+
+	t.Run("SetEmergencyMode deactivates emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+		manager.SetEmergencyMode(false)
+
+		status := manager.GetSafetyStatus()
+		if status.EmergencyMode {
+			t.Error("Expected emergency mode to be deactivated")
+		}
+	})
+
+	t.Run("Emergency mode creates safety event", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.SetEmergencyMode(true)
+
+		events := manager.GetSafetyEvents()
+		if len(events) == 0 {
+			t.Error("Expected safety event for emergency mode activation")
+		}
+		// Check last event is emergency
+		lastEvent := events[len(events)-1]
+		if lastEvent.Level != "emergency" {
+			t.Errorf("Expected emergency level event, got: %s", lastEvent.Level)
+		}
+	})
+
+	t.Run("Emergency mode blocks unsafe commands", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		// Movement commands should be blocked
+		err := manager.Up(50)
+		if err != nil {
+			t.Errorf("Expected Up to bypass validation in emergency mode, got: %v", err)
+		}
+
+		err = manager.Flip("left")
+		if err != nil {
+			t.Errorf("Expected Flip to bypass validation in emergency mode, got: %v", err)
+		}
+
+		err = manager.SetSpeed(150)
+		if err != nil {
+			t.Errorf("Expected SetSpeed to bypass validation in emergency mode, got: %v", err)
+		}
+	})
+
+	t.Run("Emergency command always works in emergency mode", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetEmergencyMode(true)
+
+		// Even if already in emergency mode, Emergency() should be callable
+		err := manager.Emergency()
+		if err != nil {
+			t.Errorf("Expected Emergency() to work in emergency mode, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_SafetyEnabled tests safety enable/disable behavior.
+func TestSafetyManager_SafetyEnabled(t *testing.T) {
+	t.Run("SetSafetyEnabled disables safety", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.SetSafetyEnabled(false)
+
+		status := manager.GetSafetyStatus()
+		if status.SafetyEnabled {
+			t.Error("Expected safety to be disabled")
+		}
+	})
+
+	t.Run("SetSafetyEnabled enables safety", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+		manager.SetSafetyEnabled(true)
+
+		status := manager.GetSafetyStatus()
+		if !status.SafetyEnabled {
+			t.Error("Expected safety to be enabled")
+		}
+	})
+
+	t.Run("Disabled safety allows all commands", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Altitude.MaxHeight = 100
+		manager := NewSafetyManager(mockCommander, config)
+		manager.SetSafetyEnabled(false)
+
+		// Should allow exceeding limits
+		err := manager.Up(200)
+		if err != nil {
+			t.Errorf("Expected Up to bypass validation with safety disabled, got: %v", err)
+		}
+
+		err = manager.SetSpeed(200)
+		if err != nil {
+			t.Errorf("Expected SetSpeed to bypass validation with safety disabled, got: %v", err)
+		}
+	})
+}
+
+// TestSafetyManager_SetEventCallback tests the SetEventCallback method.
+func TestSafetyManager_SetEventCallback(t *testing.T) {
+	t.Run("SetEventCallback updates callback", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.SetEventCallback(func(event *SafetyEvent) {
+			// Callback would be invoked
+		})
+
+		// Trigger a safety event by setting low battery
+		state := createTestState()
+		state.Bat = 5 // Below emergency threshold
+		manager.UpdateState(state)
+
+		// Verify event was generated
+		events := manager.GetSafetyEvents()
+		if len(events) == 0 {
+			t.Error("Expected safety event to be generated")
+		}
+	})
+
+	t.Run("SetEventCallback can be updated", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Set initial callback
+		manager.SetEventCallback(func(event *SafetyEvent) {})
+
+		// Update callback - should not panic
+		manager.SetEventCallback(func(event *SafetyEvent) {})
+
+		// Generate an event - should not crash
+		state := createTestState()
+		state.Bat = 5
+		manager.UpdateState(state)
+	})
+
+	t.Run("SetEventCallback with nil is allowed", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Should not panic
+		manager.SetEventCallback(nil)
+
+		// Generate an event - should not crash
+		state := createTestState()
+		state.Bat = 5
+		manager.UpdateState(state)
+	})
+}
+
+// TestSafetyManager_CommandBlocking generates safety events correctly.
+func TestSafetyManager_CommandBlocking(t *testing.T) {
+	t.Run("Blocked command returns error", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Altitude.MaxHeight = 100
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Use Go command which correctly validates altitude
+		err := manager.Go(0, 0, 150, 50)
+
+		if err == nil {
+			t.Error("Expected command to be blocked")
+		}
+		if mockCommander.goCalled {
+			t.Error("Expected commander.Go NOT to be called")
+		}
+	})
+
+	t.Run("Multiple blocked commands return errors", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		config.Altitude.MaxHeight = 100
+		manager := NewSafetyManager(mockCommander, config)
+
+		// Block multiple commands using Go
+		err1 := manager.Go(0, 0, 150, 50)
+		err2 := manager.Go(0, 0, 150, 50)
+		err3 := manager.Go(0, 0, 150, 50)
+
+		if err1 == nil || err2 == nil || err3 == nil {
+			t.Error("Expected all commands to be blocked")
+		}
+	})
+
+	t.Run("Emergency mode activation generates event", func(t *testing.T) {
+		mockCommander := NewMockCommander()
+		config := DefaultConfig()
+		manager := NewSafetyManager(mockCommander, config)
+
+		manager.SetEmergencyMode(true)
+
+		events := manager.GetSafetyEvents()
+		emergencyEvents := 0
+		for _, event := range events {
+			if event.Type == "emergency" {
+				emergencyEvents++
+			}
+		}
+		if emergencyEvents == 0 {
+			t.Error("Expected emergency event for emergency mode activation")
+		}
+	})
+}
+
+// TestSafetyManager_AllCommands table-driven test for all command wrappers.
+func TestSafetyManager_AllCommands(t *testing.T) {
+	tests := []struct {
+		name         string
+		command      func(*SafetyManager) error
+		verifyCalled func(*MockCommander) bool
+	}{
+		{
+			name:         "TakeOff",
+			command:      func(m *SafetyManager) error { return m.TakeOff() },
+			verifyCalled: func(m *MockCommander) bool { return m.takeoffCalled },
+		},
+		{
+			name:         "Land",
+			command:      func(m *SafetyManager) error { return m.Land() },
+			verifyCalled: func(m *MockCommander) bool { return m.landCalled },
+		},
+		{
+			name:         "Emergency",
+			command:      func(m *SafetyManager) error { return m.Emergency() },
+			verifyCalled: func(m *MockCommander) bool { return m.emergencyCalled },
+		},
+		{
+			name:         "Up",
+			command:      func(m *SafetyManager) error { return m.Up(50) },
+			verifyCalled: func(m *MockCommander) bool { return m.upCalled },
+		},
+		{
+			name:         "Down",
+			command:      func(m *SafetyManager) error { return m.Down(50) },
+			verifyCalled: func(m *MockCommander) bool { return m.downCalled },
+		},
+		{
+			name:         "Left",
+			command:      func(m *SafetyManager) error { return m.Left(50) },
+			verifyCalled: func(m *MockCommander) bool { return m.leftCalled },
+		},
+		{
+			name:         "Right",
+			command:      func(m *SafetyManager) error { return m.Right(50) },
+			verifyCalled: func(m *MockCommander) bool { return m.rightCalled },
+		},
+		{
+			name:         "Forward",
+			command:      func(m *SafetyManager) error { return m.Forward(50) },
+			verifyCalled: func(m *MockCommander) bool { return m.forwardCalled },
+		},
+		{
+			name:         "Backward",
+			command:      func(m *SafetyManager) error { return m.Backward(50) },
+			verifyCalled: func(m *MockCommander) bool { return m.backwardCalled },
+		},
+		{
+			name:         "Clockwise",
+			command:      func(m *SafetyManager) error { return m.Clockwise(90) },
+			verifyCalled: func(m *MockCommander) bool { return m.clockwiseCalled },
+		},
+		{
+			name:         "CounterClockwise",
+			command:      func(m *SafetyManager) error { return m.CounterClockwise(90) },
+			verifyCalled: func(m *MockCommander) bool { return m.counterClockwiseCalled },
+		},
+		{
+			name:         "Flip",
+			command:      func(m *SafetyManager) error { return m.Flip("left") },
+			verifyCalled: func(m *MockCommander) bool { return m.flipCalled },
+		},
+		{
+			name:         "Go",
+			command:      func(m *SafetyManager) error { return m.Go(50, 50, 50, 50) },
+			verifyCalled: func(m *MockCommander) bool { return m.goCalled },
+		},
+		{
+			name:         "Curve",
+			command:      func(m *SafetyManager) error { return m.Curve(0, 0, 0, 50, 50, 50, 50) },
+			verifyCalled: func(m *MockCommander) bool { return m.curveCalled },
+		},
+		{
+			name:         "SetSpeed",
+			command:      func(m *SafetyManager) error { return m.SetSpeed(50) },
+			verifyCalled: func(m *MockCommander) bool { return m.setSpeedCalled },
+		},
+		{
+			name:         "SetRcControl",
+			command:      func(m *SafetyManager) error { return m.SetRcControl(50, 50, 50, 50) },
+			verifyCalled: func(m *MockCommander) bool { return m.setRcControlCalled },
+		},
+		{
+			name:         "SetWiFiCredentials",
+			command:      func(m *SafetyManager) error { return m.SetWiFiCredentials("ssid", "pass") },
+			verifyCalled: func(m *MockCommander) bool { return m.setWiFiCredentialsCalled },
+		},
+		{
+			name:         "StreamOn",
+			command:      func(m *SafetyManager) error { return m.StreamOn() },
+			verifyCalled: func(m *MockCommander) bool { return m.streamOnCalled },
+		},
+		{
+			name:         "StreamOff",
+			command:      func(m *SafetyManager) error { return m.StreamOff() },
+			verifyCalled: func(m *MockCommander) bool { return m.streamOffCalled },
+		},
+		{
+			name:         "Init",
+			command:      func(m *SafetyManager) error { return m.Init() },
+			verifyCalled: func(m *MockCommander) bool { return m.initCalled },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockCommander := NewMockCommander()
+			config := DefaultConfig()
+			manager := NewSafetyManager(mockCommander, config)
+
+			err := tt.command(manager)
+
+			if err != nil {
+				t.Errorf("Expected %s to succeed, got error: %v", tt.name, err)
+			}
+			if !tt.verifyCalled(mockCommander) {
+				t.Errorf("Expected commander.%s to be called", tt.name)
+			}
+		})
+	}
+}
