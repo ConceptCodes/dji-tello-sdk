@@ -13,10 +13,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-var (
-	// ErrConfigNotFound indicates no matching config file was discovered during auto-detection.
-	ErrConfigNotFound = errors.New("gamepad config not found")
-)
+// ErrConfigNotFound indicates no matching config file was discovered during auto-detection.
+var ErrConfigNotFound = errors.New("gamepad config not found")
 
 // ConfigLoader handles loading and validating gamepad configurations
 type ConfigLoader struct {

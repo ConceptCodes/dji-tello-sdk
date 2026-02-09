@@ -48,7 +48,7 @@ func (cc *ConnectionCoordinator) Connect() error {
 
 	if cc.commander == nil {
 		cc.lastError = "commander is not available"
-		return fmt.Errorf(cc.lastError)
+		return fmt.Errorf("%s", cc.lastError)
 	}
 
 	utils.Logger.Info("Attempting to connect to Tello via web interface...")

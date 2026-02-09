@@ -13,10 +13,8 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-var (
-	// ErrConfigNotFound indicates that no safety configuration file was discovered.
-	ErrConfigNotFound = errors.New("safety config not found")
-)
+// ErrConfigNotFound indicates that no safety configuration file was discovered.
+var ErrConfigNotFound = errors.New("safety config not found")
 
 // getUserConfigDir returns the user config directory path
 func getUserConfigDir() string {
