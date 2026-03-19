@@ -7,7 +7,6 @@ bin
 /models/
 lib/
 
-.sisyphus
-roadmap/
+.sisyphus/
 .agents/
 AGENTS.md
